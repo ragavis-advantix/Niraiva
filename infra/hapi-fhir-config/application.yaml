@@ -1,0 +1,102 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://ep-misty-dream-a13hibch-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channelBinding=require
+    username: neondb_owner
+    password: npg_gd7pOwhPQS8F
+    driverClassName: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  
+  jpa:
+    properties:
+      hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgres94Dialect
+      hibernate.format_sql: false
+      hibernate.show_sql: false
+      hibernate.jdbc.batch_size: 20
+      hibernate.cache.use_query_cache: false
+      hibernate.cache.use_second_level_cache: false
+      hibernate.search.enabled: false
+
+hapi:
+  fhir:
+    # FHIR Version
+    fhir_version: R4
+    
+    # Server Configuration
+    server_address: http://localhost:8080/fhir
+    
+    # CORS Configuration
+    cors:
+      enabled: true
+      allowed_origin:
+        - "*"
+      allow_credentials: true
+    
+    # Validation
+    validation:
+      requests_enabled: true
+      responses_enabled: false
+    
+    # Subscriptions
+    subscription:
+      resthook_enabled: true
+      email_enabled: false
+      websocket_enabled: false
+    
+    # Search Configuration
+    allow_external_references: true
+    allow_multiple_delete: true
+    reuse_cached_search_results_millis: 60000
+    
+    # Implementation Guides
+    implementationguides:
+      fhir_r4_core:
+        name: hl7.fhir.r4.core
+        version: 4.0.1
+        url: http://hl7.org/fhir/R4/
+    
+    # Narrative Generation
+    narrative_enabled: true
+    
+    # Binary Storage
+    binary_storage_enabled: true
+    
+    # Bulk Export
+    bulk_export_enabled: false
+    
+    # Client ID Strategy
+    client_id_strategy: ALPHANUMERIC
+    
+    # Logging
+    logger:
+      name: fhirtest.access
+      format: "Path[${servletPath}] Source[${requestHeader.x-forwarded-for}] Operation[${operationType} ${operationName} ${idOrResourceName}] UA[${requestHeader.user-agent}] Params[${requestParameters}] ResponseEncoding[${responseEncodingNoDefault}]"
+      log_exceptions: true
+    
+    # Partitioning (disabled for single-tenant)
+    partitioning:
+      enabled: false
+    
+    # Advanced Lucene Indexing (disabled for performance)
+    advanced_lucene_indexing: false
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    mime-types: application/json,application/fhir+json,application/xml,application/fhir+xml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized

@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  hapi-fhir:
+    image: hapiproject/hapi:latest
+    container_name: niraiva-hapi-fhir
+    ports:
+      - "8080:8080"
+    environment:
+      # Database Configuration - Neon.tech PostgreSQL
+      spring.datasource.url: 'jdbc:postgresql://ep-misty-dream-a13hibch-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'
+      spring.datasource.username: 'neondb_owner'
+      spring.datasource.password: 'npg_gd7pOwhPQS8F'
+      spring.datasource.driverClassName: org.postgresql.Driver
+      
+      # JPA Configuration
+      spring.jpa.properties.hibernate.dialect: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgres94Dialect
+      spring.jpa.properties.hibernate.format_sql: 'false'
+      spring.jpa.properties.hibernate.show_sql: 'false'
+      
+      # HAPI FHIR Configuration
+      hapi.fhir.fhir_version: R4
+      hapi.fhir.server_address: http://localhost:8080/fhir
+      hapi.fhir.cors.allowed_origin: '*'
+      hapi.fhir.cors.allow_credentials: 'true'
+      hapi.fhir.allow_external_references: 'true'
+      hapi.fhir.allow_multiple_delete: 'true'
+      hapi.fhir.reuse_cached_search_results_millis: '60000'
+      
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/fhir/metadata || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    networks:
+      - niraiva-network
+
+networks:
+  niraiva-network:
+    driver: bridge
+
