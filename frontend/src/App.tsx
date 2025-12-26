@@ -22,6 +22,7 @@ import DoctorLogin from "./pages/doctor/DoctorLogin";
 import DoctorCallback from "./pages/doctor/DoctorCallback";
 import DoctorDashboard from "./pages/doctor/DoctorDashboard";
 import DoctorPatientProfile from "./pages/doctor/DoctorPatientProfile";
+import DoctorProfile from "./pages/doctor/DoctorProfile";
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
@@ -131,6 +132,14 @@ const App = () => (
                     element={
                       <DoctorProtectedRoute>
                         <DoctorDashboard />
+                      </DoctorProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/doctor/profile"
+                    element={
+                      <DoctorProtectedRoute>
+                        <DoctorProfile />
                       </DoctorProtectedRoute>
                     }
                   />

@@ -5,11 +5,12 @@ import { Button } from '@/components/ui/button';
 import DoctorTopBar from './components/DoctorTopBar';
 import PatientCard from './components/PatientCard';
 import AddPatientModal from './components/AddPatientModal';
-import { Plus } from 'lucide-react';
+import StatsCard from './components/StatsCard';
+import { Plus, Users, Activity, TrendingUp } from 'lucide-react';
 
 interface Patient {
     user_id: string;
-    full_name: string;
+    name: string;  // Changed from full_name to match DB schema
     gender?: string;
     dob?: string;
     phone?: string;
@@ -17,12 +18,15 @@ interface Patient {
     created_at?: string;
 }
 
+type FilterType = 'all' | 'chronic' | 'recent';
+
 export default function DoctorDashboard() {
     const navigate = useNavigate();
     const [patients, setPatients] = useState<Patient[]>([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [activeFilter, setActiveFilter] = useState<FilterType>('all');
 
     useEffect(() => {
         fetchPatients();
@@ -40,14 +44,30 @@ export default function DoctorDashboard() {
             return;
         }
 
-        // Query doctor_patients junction table with patient details from user_profiles
+        // 1. Fetch domain doctor ID from doctors table
+        const { data: doctor, error: doctorError } = await supabase
+            .from('doctors')
+            .select('id')
+            .eq('auth_user_id', user.id)
+            .single();
+
+        if (doctorError || !doctor) {
+            console.error('Doctor profile not found:', doctorError);
+            setLoading(false);
+            return;
+        }
+
+        const doctorId = doctor.id;
+        console.log('Doctor ID resolved:', doctorId);
+
+        // 2. Query doctor_patient_links junction table with patient details
         const { data, error } = await supabase
-            .from('doctor_patients')
+            .from('doctor_patient_links')
             .select(`
-                patient_user_id,
-                user_profiles!inner (
-                    user_id,
-                    full_name,
+                patient_id,
+                patient:patients (
+                    id,
+                    name,
                     gender,
                     dob,
                     phone,
@@ -55,18 +75,35 @@ export default function DoctorDashboard() {
                     created_at
                 )
             `)
-            .eq('doctor_id', user.id);
+            .eq('doctor_id', doctorId);
 
-        console.log('Fetched patients:', { data, error });
+        console.log('Fetched patients raw data:', { data, error });
 
-        if (!error && data) {
+        if (error) {
+            console.error('Error fetching patients:', error);
+            setLoading(false);
+            return;
+        }
+
+        if (data) {
             // Extract patient objects from the nested structure
             const patientList = data
-                .map((d: any) => d.user_profiles)
+                .map((row: any) => {
+                    if (!row.patient) return null;
+                    return {
+                        user_id: row.patient.id,
+                        name: row.patient.name,
+                        gender: row.patient.gender,
+                        dob: row.patient.dob,
+                        phone: row.patient.phone,
+                        chronic_conditions: row.patient.chronic_conditions,
+                        created_at: row.patient.created_at
+                    };
+                })
                 .filter((p: any) => p !== null);
+
+            console.log('Mapped patients:', patientList);
             setPatients(patientList);
-        } else if (error) {
-            console.error('Error fetching patients:', error);
         }
 
         setLoading(false);
@@ -118,14 +155,54 @@ export default function DoctorDashboard() {
         return false;
     };
 
+    // Calculate statistics
+    const totalPatients = patients.length;
+    const patientsWithConditions = patients.filter(p => p.chronic_conditions && p.chronic_conditions.length > 0).length;
+
+    // Calculate median age (more clinically relevant than average)
+    const medianAge = (() => {
+        if (patients.length === 0) return null;
+        const ages = patients
+            .map(p => {
+                if (!p.dob) return null;
+                const birth = new Date(p.dob);
+                const today = new Date();
+                let age = today.getFullYear() - birth.getFullYear();
+                const m = today.getMonth() - birth.getMonth();
+                if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+                // Validate age range
+                return (age >= 0 && age <= 120) ? age : null;
+            })
+            .filter((age): age is number => age !== null)
+            .sort((a, b) => a - b);
+
+        if (ages.length === 0) return null;
+        const mid = Math.floor(ages.length / 2);
+        return ages.length % 2 === 0 ? Math.round((ages[mid - 1] + ages[mid]) / 2) : ages[mid];
+    })();
+
+    // Filter by type
+    const getFilteredByType = (filterType: FilterType) => {
+        switch (filterType) {
+            case 'chronic':
+                return patients.filter(p => p.chronic_conditions && p.chronic_conditions.length > 0);
+            case 'recent':
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                return patients.filter(p => p.created_at && new Date(p.created_at) > thirtyDaysAgo);
+            default:
+                return patients;
+        }
+    };
+
     // Advanced multi-field search
-    const filteredPatients = patients.filter((p) => {
+    const filteredPatients = getFilteredByType(activeFilter).filter((p) => {
         const q = search.toLowerCase().trim();
 
         if (!q) return true; // Show all if search is empty
 
         // Search by name
-        if (p.full_name?.toLowerCase().includes(q)) return true;
+        if (p.name?.toLowerCase().includes(q)) return true;
 
         // Search by phone
         if (p.phone?.includes(q)) return true;
@@ -146,7 +223,7 @@ export default function DoctorDashboard() {
             <div className="max-w-6xl mx-auto px-6 py-6">
 
                 {/* Greeting & Actions */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">
                             Your Patients
@@ -164,20 +241,80 @@ export default function DoctorDashboard() {
                     </Button>
                 </div>
 
-                {/* Search */}
-                <div className="mb-6">
-                    <input
-                        type="text"
-                        placeholder="Search by name, phone, condition, or age (e.g., '30-40', '40+', 'diabetes')"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200 bg-white px-5 py-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all"
+                {/* Statistics Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <StatsCard
+                        title="Total Patients"
+                        value={totalPatients}
+                        icon={Users}
+                        description="Currently under your care"
                     />
-                    {search && (
-                        <p className="text-xs text-gray-500 mt-2 px-1">
-                            Searching across: name, phone, conditions, and age
-                        </p>
-                    )}
+                    <StatsCard
+                        title="Chronic Conditions"
+                        value={patientsWithConditions}
+                        icon={Activity}
+                        description="Asthma, diabetes, hypertension…"
+                    />
+                    <StatsCard
+                        title="Median Age"
+                        value={medianAge !== null ? `${medianAge} yrs` : '--'}
+                        icon={TrendingUp}
+                        description="Risk profiling indicator"
+                    />
+                </div>
+
+                {/* Search */}
+                <div className="mb-4">
+                    <div className="relative">
+                        <input
+                            type="text"
+                            placeholder="Search by name, phone, condition, or age"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            onFocus={(e) => e.target.parentElement?.classList.add('focused')}
+                            onBlur={(e) => e.target.parentElement?.classList.remove('focused')}
+                            className="w-full rounded-xl border border-gray-200 bg-white px-5 py-3 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 transition-all"
+                        />
+                        {search && (
+                            <p className="text-xs text-gray-500 mt-2 px-1">
+                                Searching across: name, phone, conditions, and age
+                            </p>
+                        )}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 px-1">
+                        💡 Tip: Try 'asthma', '40+', or phone digits
+                    </p>
+                </div>
+
+                {/* Filter Tabs */}
+                <div className="flex gap-2 mb-6">
+                    <button
+                        onClick={() => setActiveFilter('all')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeFilter === 'all'
+                            ? 'bg-cyan-500 text-white shadow-md'
+                            : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                            }`}
+                    >
+                        All Patients ({patients.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveFilter('chronic')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeFilter === 'chronic'
+                            ? 'bg-cyan-500 text-white shadow-md'
+                            : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                            }`}
+                    >
+                        Chronic Conditions ({patientsWithConditions})
+                    </button>
+                    <button
+                        onClick={() => setActiveFilter('recent')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeFilter === 'recent'
+                            ? 'bg-cyan-500 text-white shadow-md'
+                            : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                            }`}
+                    >
+                        Recently Added
+                    </button>
                 </div>
 
                 {/* Patient List */}
@@ -187,15 +324,27 @@ export default function DoctorDashboard() {
                         <p className="ml-3 text-gray-500">Loading patients...</p>
                     </div>
                 ) : filteredPatients.length === 0 ? (
-                    <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-                        <p className="text-gray-500">
-                            {search ? 'No patients found matching your search' : 'No patients assigned yet'}
-                        </p>
-                        {!search && (
-                            <p className="text-sm text-gray-400 mt-2">
-                                Patients will appear here once they are assigned to you
+                    <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+                        <div className="max-w-md mx-auto">
+                            <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                            <p className="text-gray-600 text-lg font-medium mb-2">
+                                {search ? 'No patients found matching your search' : 'No patients assigned yet'}
                             </p>
-                        )}
+                            {!search && (
+                                <>
+                                    <p className="text-sm text-gray-400 mb-6">
+                                        Patients will appear here once they are assigned to you
+                                    </p>
+                                    <Button
+                                        onClick={() => setIsAddModalOpen(true)}
+                                        className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white shadow-lg shadow-cyan-500/20"
+                                    >
+                                        <Plus className="w-4 h-4 mr-2" />
+                                        Add Your First Patient
+                                    </Button>
+                                </>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import Tesseract from "tesseract.js";
-import type { File as MulterFile } from 'multer';
 import { getSupabaseAdminClient, getSupabaseClient } from "../lib/supabaseClient";
 
 const router = Router();
@@ -11,7 +10,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 declare global {
     namespace Express {
         interface Request {
-            file?: MulterFile;
+            file?: Express.Multer.File;
             user?: any;
         }
     }
@@ -72,7 +71,7 @@ router.post(
             // FILE VALIDATION
             if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-            const file = req.file as MulterFile;
+            const file = req.file as Express.Multer.File;
             const mime = file.mimetype || "application/octet-stream";
 
             // ========== REJECT PDFs ==========
@@ -252,7 +251,7 @@ router.post(
                     };
 
                     // Medical profile fields
-                    if (profile.name) upsertPayload.full_name = profile.name;
+                    if (profile.name) upsertPayload.name = profile.name;  // ✅ Changed full_name → name
                     if (profile.emergencyContact) upsertPayload.phone = profile.emergencyContact;
                     if (profile.gender) upsertPayload.gender = profile.gender;
                     if (age) upsertPayload.age = age;
@@ -271,7 +270,7 @@ router.post(
                     upsertPayload.last_updated_by = 'report_upload';
 
                     console.log('💾 Upserting user profile with:', {
-                        full_name: profile.name,
+                        name: profile.name,  // ✅ Changed full_name → name
                         age,
                         gender: profile.gender,
                         height: heightValue,

@@ -446,11 +446,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
 
     // Try to fetch existing profile from Supabase
+    // ✅ Use maybeSingle() to allow 0 rows without throwing error
     const { data, error } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();  // ✅ CRITICAL: Prevents 406 error when profile doesn't exist
 
     if (error) {
       // If the user_profiles table doesn't exist in this Supabase instance
@@ -828,7 +829,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
           if (instruction.key && healthMetricKeys.has(instruction.key)) {
             // Merge into existing health_metrics
             const currentProfile = userProfile || (await (async () => {
-              const { data } = await supabase.from('user_profiles').select('*').eq('user_id', user.id).single();
+              // ✅ Use maybeSingle() to prevent 406 error
+              const { data } = await supabase.from('user_profiles').select('*').eq('user_id', user.id).maybeSingle();
               return data || null;
             })());
 

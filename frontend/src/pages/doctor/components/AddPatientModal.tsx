@@ -58,8 +58,11 @@ export default function AddPatientModal({ open, onClose, onSuccess }: AddPatient
                     'Authorization': `Bearer ${(await (await import('@/lib/supabase')).supabase.auth.getSession()).data.session?.access_token}`,
                 },
                 body: JSON.stringify({
-                    ...formData,
-                    chronicConditions: conditions,
+                    name: formData.fullName.trim(),
+                    phone: formData.phone.trim(),
+                    dob: formData.dob,
+                    gender: formData.gender,
+                    chronic_conditions: conditions.length > 0 ? conditions : null,
                 }),
             });
 
@@ -91,62 +94,62 @@ export default function AddPatientModal({ open, onClose, onSuccess }: AddPatient
 
     return (
         <Dialog open={open} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[425px] bg-[#0B1220] border-white/10 text-white shadow-[0_0_40px_rgba(0,255,255,0.15)]">
+            <DialogContent className="sm:max-w-[425px] bg-white border-gray-200 text-gray-900 shadow-xl">
                 <DialogHeader>
-                    <DialogTitle className="text-xl font-bold text-white">Add New Patient</DialogTitle>
-                    <DialogDescription className="text-cyan-200/70">
+                    <DialogTitle className="text-xl font-bold text-gray-900">Add New Patient</DialogTitle>
+                    <DialogDescription className="text-gray-600">
                         Enter patient details to create an account and link them to your portal.
                     </DialogDescription>
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4 py-4">
                     <div className="space-y-2">
-                        <Label htmlFor="fullName" className="text-gray-300">Full Name</Label>
+                        <Label htmlFor="fullName" className="text-gray-700">Full Name</Label>
                         <Input
                             id="fullName"
                             required
                             value={formData.fullName}
                             onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                            className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-cyan-500/50"
+                            className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-cyan-500 focus:ring-cyan-500/20"
                             placeholder="e.g. John Doe"
                         />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="phone" className="text-gray-300">Phone Number</Label>
+                            <Label htmlFor="phone" className="text-gray-700">Phone Number</Label>
                             <Input
                                 id="phone"
                                 required
                                 value={formData.phone}
                                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-cyan-500/50"
+                                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-cyan-500 focus:ring-cyan-500/20"
                                 placeholder="e.g. 9876543210"
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="dob" className="text-gray-300">Date of Birth</Label>
+                            <Label htmlFor="dob" className="text-gray-700">Date of Birth</Label>
                             <Input
                                 id="dob"
                                 type="date"
                                 required
                                 value={formData.dob}
                                 onChange={(e) => setFormData({ ...formData, dob: e.target.value })}
-                                className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-cyan-500/50"
+                                className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-cyan-500 focus:ring-cyan-500/20"
                             />
                         </div>
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="gender" className="text-gray-300">Gender</Label>
+                        <Label htmlFor="gender" className="text-gray-700">Gender</Label>
                         <Select
                             value={formData.gender}
                             onValueChange={(val) => setFormData({ ...formData, gender: val })}
                         >
-                            <SelectTrigger className="bg-white/5 border-white/10 text-white">
+                            <SelectTrigger className="bg-gray-50 border-gray-200 text-gray-900">
                                 <SelectValue placeholder="Select gender" />
                             </SelectTrigger>
-                            <SelectContent className="bg-[#0B1220] border-white/10 text-white">
+                            <SelectContent className="bg-white border-gray-200 text-gray-900">
                                 <SelectItem value="Male">Male</SelectItem>
                                 <SelectItem value="Female">Female</SelectItem>
                                 <SelectItem value="Other">Other</SelectItem>
@@ -155,20 +158,20 @@ export default function AddPatientModal({ open, onClose, onSuccess }: AddPatient
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="conditions" className="text-gray-300">Chronic Conditions (Optional)</Label>
+                        <Label htmlFor="conditions" className="text-gray-700">Chronic Conditions (Optional)</Label>
                         <Input
                             id="conditions"
                             value={newCondition}
                             onChange={(e) => setNewCondition(e.target.value)}
                             onKeyDown={handleAddCondition}
-                            className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-cyan-500/50"
+                            className="bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-cyan-500 focus:ring-cyan-500/20"
                             placeholder="Type and press Enter to add"
                         />
                         <div className="flex flex-wrap gap-2 mt-2">
                             {conditions.map((c, i) => (
-                                <span key={i} className="flex items-center gap-1 px-2 py-1 bg-cyan-500/20 text-cyan-400 text-xs rounded-full border border-cyan-500/30">
+                                <span key={i} className="flex items-center gap-1 px-2 py-1 bg-cyan-50 text-cyan-700 text-xs rounded-full border border-cyan-200">
                                     {c}
-                                    <button type="button" onClick={() => removeCondition(i)} className="hover:text-white">
+                                    <button type="button" onClick={() => removeCondition(i)} className="hover:text-cyan-900">
                                         <X className="w-3 h-3" />
                                     </button>
                                 </span>
@@ -181,14 +184,14 @@ export default function AddPatientModal({ open, onClose, onSuccess }: AddPatient
                             type="button"
                             variant="outline"
                             onClick={onClose}
-                            className="border-white/10 text-gray-400 hover:text-white hover:bg-white/5"
+                            className="border-gray-300 text-gray-700 hover:bg-gray-50"
                         >
                             Cancel
                         </Button>
                         <Button
                             type="submit"
                             disabled={loading}
-                            className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white shadow-[0_0_15px_rgba(0,255,255,0.3)]"
+                            className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white shadow-lg shadow-cyan-500/20"
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
                             Create Patient

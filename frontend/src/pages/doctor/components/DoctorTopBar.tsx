@@ -1,5 +1,7 @@
+import React from 'react';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
+import { User } from 'lucide-react';
 
 export default function DoctorTopBar() {
     const navigate = useNavigate();
@@ -19,12 +21,21 @@ export default function DoctorTopBar() {
                     </span>
                 </div>
 
-                <button
-                    onClick={logout}
-                    className="text-sm text-red-600 hover:underline"
-                >
-                    Logout
-                </button>
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => navigate('/doctor/profile')}
+                        className="flex items-center gap-2 text-sm text-gray-600 hover:text-cyan-600 transition-colors"
+                    >
+                        <User className="w-4 h-4" />
+                        Profile
+                    </button>
+                    <button
+                        onClick={logout}
+                        className="text-sm text-red-600 hover:underline"
+                    >
+                        Logout
+                    </button>
+                </div>
             </div>
         </div>
     );

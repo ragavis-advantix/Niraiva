@@ -111,15 +111,71 @@ export default function DoctorPatientProfile() {
             setLoading(true);
 
             try {
-                // 1. Fetch Profile
-                const { data: profileData, error: profileError } = await supabase
-                    .from('user_profiles')
-                    .select('*')
-                    .eq('user_id', patientUserId)
+                // 1. Get logged-in user
+                const {
+                    data: { user },
+                } = await supabase.auth.getUser();
+
+                if (!user) {
+                    setError('Not authenticated');
+                    setLoading(false);
+                    return;
+                }
+
+                // 2. Resolve domain doctor ID
+                const { data: doctor, error: doctorError } = await supabase
+                    .from('doctors')
+                    .select('id')
+                    .eq('auth_user_id', user.id)
                     .single();
 
-                if (profileError) throw profileError;
-                setPatient(profileData);
+                if (doctorError || !doctor) {
+                    console.error('Doctor not found:', doctorError);
+                    setError('Doctor profile not found');
+                    setLoading(false);
+                    return;
+                }
+
+                const doctorId = doctor.id;
+                console.log('Doctor ID resolved:', doctorId);
+
+                // 3. Fetch patient THROUGH link table
+                const { data: linkData, error: linkError } = await supabase
+                    .from('doctor_patient_links')
+                    .select(`
+                        patient:patients (
+                            id,
+                            name,
+                            gender,
+                            dob,
+                            phone,
+                            chronic_conditions,
+                            created_at
+                        )
+                    `)
+                    .eq('doctor_id', doctorId)
+                    .eq('patient_id', patientUserId)
+                    .single();
+
+                if (linkError || !linkData?.patient) {
+                    console.error('Patient not found or not linked:', linkError);
+                    setError('Patient not found or not linked to your account');
+                    setLoading(false);
+                    return;
+                }
+
+                // Map patient data
+                const patientData = {
+                    user_id: linkData.patient.id,
+                    full_name: linkData.patient.name,
+                    gender: linkData.patient.gender,
+                    dob: linkData.patient.dob,
+                    phone: linkData.patient.phone,
+                    chronic_conditions: linkData.patient.chronic_conditions || []
+                };
+
+                console.log('Patient loaded:', patientData);
+                setPatient(patientData);
 
                 // 2. Fetch Medications (Check if table exists, otherwise use empty)
                 const { data: medData, error: medError } = await supabase
@@ -291,54 +347,63 @@ export default function DoctorPatientProfile() {
             <DoctorTopBar />
 
             <div className="max-w-7xl mx-auto px-6 py-8">
-                {/* Back Button */}
-                <button
-                    onClick={() => navigate('/doctor/dashboard')}
-                    className="flex items-center text-gray-600 hover:text-cyan-600 mb-6 transition-colors"
-                >
-                    <ChevronLeft className="w-5 h-5 mr-1" />
-                    Back to Dashboard
-                </button>
+                {/* Back Button - Sticky */}
+                <div className="sticky top-0 z-10 bg-gray-50 py-4 -mt-8 mb-2">
+                    <button
+                        onClick={() => navigate('/doctor/dashboard')}
+                        className="flex items-center text-gray-600 hover:text-cyan-600 transition-colors"
+                    >
+                        <ChevronLeft className="w-5 h-5 mr-1" />
+                        Back to Dashboard
+                    </button>
+                </div>
 
-                {/* Profile Header */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
-                    <div className="flex flex-col md:flex-row items-center gap-6">
-                        <div className="w-24 h-24 rounded-full bg-cyan-100 flex items-center justify-center text-3xl font-bold text-cyan-600 border-4 border-white shadow-sm">
+                {/* Profile Header - Clinical Snapshot */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-6">
+                    <div className="flex flex-col md:flex-row items-center gap-5">
+                        <div className="w-20 h-20 rounded-full bg-cyan-100 flex items-center justify-center text-2xl font-bold text-cyan-600 border-4 border-white shadow-sm">
                             {patient.full_name?.[0]}
                         </div>
                         <div className="flex-1 text-center md:text-left">
-                            <h1 className="text-3xl font-bold text-gray-900">{patient.full_name}</h1>
-                            <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-2 text-gray-600">
-                                <span className="flex items-center gap-1">
-                                    <User className="w-4 h-4" /> {patient.gender}
+                            <h1 className="text-2xl font-bold text-gray-900 mb-1">{patient.full_name}</h1>
+                            <div className="flex flex-wrap justify-center md:justify-start gap-3 text-gray-600 text-sm">
+                                <span className="flex items-center gap-1 font-medium">
+                                    <Calendar className="w-4 h-4" />
+                                    {calculateAge(patient.dob)} yrs
                                 </span>
+                                <span className="text-gray-400">•</span>
                                 <span className="flex items-center gap-1">
-                                    <Calendar className="w-4 h-4" /> {calculateAge(patient.dob)} yrs ({patient.dob})
+                                    <User className="w-4 h-4" />
+                                    {patient.gender}
                                 </span>
+                                <span className="text-gray-400">•</span>
+                                <span className="text-gray-500 text-xs">
+                                    DOB: {patient.dob}
+                                </span>
+                                <span className="text-gray-400">•</span>
                                 <span className="flex items-center gap-1">
-                                    <Phone className="w-4 h-4" /> {patient.phone}
+                                    <Phone className="w-4 h-4" />
+                                    {patient.phone}
                                 </span>
                             </div>
                         </div>
                         <div className="flex gap-2">
                             <Button className="bg-cyan-500 hover:bg-cyan-600">Edit Records</Button>
-                            <div className="relative">
-                                <Button
-                                    variant="outline"
-                                    className="border-cyan-200 text-cyan-700 hover:bg-cyan-50"
-                                    disabled={isUploading}
-                                    onClick={() => document.getElementById('report-upload')?.click()}
-                                >
-                                    {isUploading ? "Processing..." : "Upload Report"}
-                                </Button>
-                                <input
-                                    type="file"
-                                    id="report-upload"
-                                    className="hidden"
-                                    onChange={handleFileUpload}
-                                    accept=".pdf,image/*"
-                                />
-                            </div>
+                            <Button
+                                variant="outline"
+                                className="border-cyan-200 text-cyan-700 hover:bg-cyan-50"
+                                disabled={isUploading}
+                                onClick={() => document.getElementById('report-upload')?.click()}
+                            >
+                                {isUploading ? "Processing..." : "Upload Report"}
+                            </Button>
+                            <input
+                                type="file"
+                                id="report-upload"
+                                className="hidden"
+                                onChange={handleFileUpload}
+                                accept=".pdf,image/*"
+                            />
                         </div>
                     </div>
                 </div>
@@ -348,9 +413,9 @@ export default function DoctorPatientProfile() {
                     <div className="lg:col-span-2 space-y-8">
                         {/* Health Parameters */}
                         <section>
-                            <div className="flex items-center gap-2 mb-4">
-                                <Activity className="w-6 h-6 text-cyan-600" />
-                                <h2 className="text-xl font-bold text-gray-900">Health Parameters</h2>
+                            <div className="flex items-center gap-2 mb-3">
+                                <Activity className="w-5 h-5 text-cyan-600" />
+                                <h2 className="text-lg font-bold text-gray-900">Health Parameters</h2>
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 {parameters.length > 0 ? (
@@ -360,8 +425,15 @@ export default function DoctorPatientProfile() {
                                         </div>
                                     ))
                                 ) : (
-                                    <div className="col-span-2 bg-gray-100/50 border border-dashed border-gray-300 rounded-xl p-8 text-center text-gray-500">
-                                        No clinical vitals recorded yet.
+                                    <div className="col-span-2 bg-gray-50 border border-dashed border-gray-300 rounded-xl p-6 text-center">
+                                        <p className="text-gray-500 text-sm mb-3">No clinical vitals recorded yet.</p>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-cyan-600 border-cyan-200 hover:bg-cyan-50"
+                                        >
+                                            + Add First Health Parameter
+                                        </Button>
                                     </div>
                                 )}
                             </div>
@@ -369,9 +441,9 @@ export default function DoctorPatientProfile() {
 
                         {/* Medications */}
                         <section>
-                            <div className="flex items-center gap-2 mb-4">
-                                <Pill className="w-6 h-6 text-cyan-600" />
-                                <h2 className="text-xl font-bold text-gray-900">Active Medications</h2>
+                            <div className="flex items-center gap-2 mb-3">
+                                <Pill className="w-5 h-5 text-cyan-600" />
+                                <h2 className="text-lg font-bold text-gray-900">Active Medications</h2>
                             </div>
                             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                                 {medications.length > 0 ? (
@@ -392,8 +464,15 @@ export default function DoctorPatientProfile() {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="p-8 text-center text-gray-500 bg-gray-50">
-                                        No active medications prescribed.
+                                    <div className="p-6 text-center bg-gray-50">
+                                        <p className="text-gray-500 text-sm mb-3">No medications recorded.</p>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-cyan-600 border-cyan-200 hover:bg-cyan-50"
+                                        >
+                                            + Prescribe Medication
+                                        </Button>
                                     </div>
                                 )}
                             </div>
@@ -401,17 +480,17 @@ export default function DoctorPatientProfile() {
 
                         {/* Clinical Notes Section */}
                         <section>
-                            <div className="flex items-center gap-2 mb-4">
-                                <ClipboardList className="w-6 h-6 text-cyan-600" />
-                                <h2 className="text-xl font-bold text-gray-900">Clinical Observations</h2>
+                            <div className="flex items-center gap-2 mb-3">
+                                <ClipboardList className="w-5 h-5 text-cyan-600" />
+                                <h2 className="text-lg font-bold text-gray-900">Clinical Observations</h2>
                             </div>
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                 <div className="space-y-4">
                                     <Textarea
-                                        placeholder="Add a clinical note or observation..."
+                                        placeholder="Enter assessment, diagnosis, or follow-up notes..."
                                         value={newNote}
                                         onChange={(e) => setNewNote(e.target.value)}
-                                        className="min-h-[100px] border-gray-200 focus:ring-cyan-500"
+                                        className="min-h-[120px] border-gray-200 focus:ring-cyan-500"
                                     />
                                     <div className="flex justify-end">
                                         <Button
@@ -457,29 +536,37 @@ export default function DoctorPatientProfile() {
                     <div className="space-y-8">
                         {/* Chronic Conditions */}
                         <section>
-                            <div className="flex items-center gap-2 mb-4">
-                                <ClipboardList className="w-6 h-6 text-cyan-600" />
-                                <h2 className="text-xl font-bold text-gray-900">Chronic Conditions</h2>
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                    <ClipboardList className="w-5 h-5 text-cyan-600" />
+                                    <h2 className="text-lg font-bold text-gray-900">Chronic Conditions</h2>
+                                </div>
+                                <button className="text-xs text-cyan-600 hover:text-cyan-700 font-medium">
+                                    Edit conditions
+                                </button>
                             </div>
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-2">
                                 {patient.chronic_conditions && patient.chronic_conditions.length > 0 ? (
                                     patient.chronic_conditions.map((condition, idx) => (
                                         <div key={idx} className="flex items-center gap-3 p-3 bg-red-50 text-red-700 rounded-lg border border-red-100">
                                             <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                                            <span className="font-medium">{condition}</span>
+                                            <div className="flex-1">
+                                                <span className="font-medium">{condition}</span>
+                                                <span className="text-xs text-red-600 ml-2">· Chronic</span>
+                                            </div>
                                         </div>
                                     ))
                                 ) : (
-                                    <p className="text-center text-gray-500 py-4 italic">No chronic conditions listed.</p>
+                                    <p className="text-center text-gray-500 py-3 text-sm italic">No chronic conditions listed.</p>
                                 )}
                             </div>
                         </section>
 
-                        {/* Recent Reports Placeholder */}
+                        {/* Recent Reports */}
                         <section>
-                            <div className="flex items-center gap-2 mb-4">
-                                <FileText className="w-6 h-6 text-cyan-600" />
-                                <h2 className="text-xl font-bold text-gray-900">Clinical Reports</h2>
+                            <div className="flex items-center gap-2 mb-3">
+                                <FileText className="w-5 h-5 text-cyan-600" />
+                                <h2 className="text-lg font-bold text-gray-900">Clinical Reports</h2>
                             </div>
                             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 divide-y divide-gray-100">
                                 {reports.length > 0 ? (
@@ -505,7 +592,18 @@ export default function DoctorPatientProfile() {
                                         </div>
                                     ))
                                 ) : (
-                                    <p className="text-center text-gray-500 py-4 italic">No reports uploaded yet.</p>
+                                    <div className="py-4 text-center">
+                                        <p className="text-gray-500 text-sm mb-2">No reports uploaded yet.</p>
+                                        <p className="text-xs text-gray-400 mb-3">Supports PDF, JPG, PNG</p>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-cyan-600 border-cyan-200 hover:bg-cyan-50"
+                                            onClick={() => document.getElementById('report-upload')?.click()}
+                                        >
+                                            + Upload First Report
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
                         </section>

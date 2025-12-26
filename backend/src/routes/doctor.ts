@@ -13,7 +13,8 @@ const asyncHandler = (fn: (req: Request, res: Response, next?: NextFunction) => 
 
 /**
  * POST /api/doctor/create-patient
- * Creates a new patient auth user, role, profile, and links to the doctor.
+ * Creates a new patient record (NO AUTH USER) and links to the doctor.
+ * Auth users are created later when patients activate their accounts.
  */
 router.post(
     "/create-patient",
@@ -22,63 +23,107 @@ router.post(
         console.log("📥 [DOCTOR] create-patient request received");
 
         try {
-            const doctorId = req.user?.id;
-            const { fullName, phone, gender, dob, chronicConditions } = req.body;
+            const authUserId = req.user?.id;
+            const { name, phone, gender, dob, chronic_conditions } = req.body;
 
-            if (!doctorId) {
-                res.status(401).json({ error: "Unauthorized - no doctor found" });
+            console.log('[DOCTOR] Payload:', req.body);
+            console.log('[DOCTOR] Auth User ID:', authUserId);
+
+            if (!authUserId) {
+                res.status(401).json({ error: "Unauthorized - no user found" });
                 return;
             }
 
-            if (!fullName || !phone) {
-                res.status(400).json({ error: "Missing required fields: fullName and phone" });
+            if (!name || !phone) {
+                res.status(400).json({ error: "Missing required fields: name and phone" });
                 return;
             }
 
             const supabaseAdmin = getSupabaseAdminClient();
 
-            // 1. Create patient auth user
-            const email = `${phone}@patient.niraiva.local`;
-            const password = uuidv4();
+            // 0. Fetch doctor domain ID from doctors table
+            console.log("🔍 Fetching doctor profile...");
+            const { data: doctor, error: doctorError } = await supabaseAdmin
+                .from("doctors")
+                .select("id")
+                .eq("auth_user_id", authUserId)
+                .single();
 
-            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-                email,
-                password,
-                email_confirm: true,
-                user_metadata: { full_name: fullName }
-            });
-
-            if (authError) {
-                console.error("❌ Auth creation error:", authError);
-                res.status(500).json({ error: "Failed to create patient account", details: authError.message });
+            if (doctorError || !doctor) {
+                console.error("❌ Doctor profile not found:", doctorError);
+                res.status(404).json({ error: "Doctor profile not found. Please complete your profile setup." });
                 return;
             }
 
-            const patientId = authData.user.id;
+            const doctorId = doctor.id;
+            console.log("✅ Doctor ID resolved:", doctorId);
 
-            // 2. Assign role
-            await supabaseAdmin.from('user_roles').insert({ user_id: patientId, role: 'patient' });
+            // 1. Create patient record (NO AUTH USER)
+            console.log("📝 Creating patient record...");
+            const { data: patient, error: patientError } = await supabaseAdmin
+                .from("patients")
+                .insert({
+                    name: name,
+                    phone: phone,
+                    dob: dob,
+                    gender: gender,
+                    chronic_conditions: chronic_conditions || [],
+                    kyc_verified: false
+                })
+                .select()
+                .single();
 
-            // 3. Create profile
-            const { error: profileError } = await supabaseAdmin.from('user_profiles').insert({
-                user_id: patientId,
-                full_name: fullName,
-                phone: phone,
-                gender: gender,
-                dob: dob,
-                chronic_conditions: chronicConditions || [],
-                role: 'patient'
+            if (patientError) {
+                console.error("❌ Patient creation error:", patientError);
+                throw patientError;
+            }
+
+            console.log("✅ Patient created:", patient.id);
+
+            // 2. Link patient to doctor using domain doctor ID
+            console.log("🔗 Linking patient to doctor...");
+            const { error: linkError } = await supabaseAdmin
+                .from("doctor_patient_links")
+                .insert({
+                    doctor_id: doctorId,
+                    patient_id: patient.id
+                });
+
+            if (linkError) {
+                console.error("❌ Linking error:", linkError);
+                throw linkError;
+            }
+
+            console.log("✅ Patient linked to doctor");
+
+            // 3. Create empty clinical profile
+            console.log("📋 Creating clinical profile...");
+            const { error: profileError } = await supabaseAdmin
+                .from("patient_profiles")
+                .insert({
+                    patient_id: patient.id,
+                    medications: [],
+                    health_parameters: {}
+                });
+
+            if (profileError) {
+                console.error("❌ Profile creation error:", profileError);
+                throw profileError;
+            }
+
+            console.log("✅ Clinical profile created");
+
+            res.status(201).json({
+                success: true,
+                patient: {
+                    id: patient.id,
+                    name: patient.name,  // ✅ Changed full_name → name
+                    phone: patient.phone,
+                    dob: patient.dob,
+                    gender: patient.gender,
+                    chronic_conditions: patient.chronic_conditions
+                }
             });
-
-            if (profileError) throw profileError;
-
-            // 4. Link doctor
-            await supabaseAdmin.from('doctor_patients').insert({
-                doctor_id: doctorId,
-                patient_user_id: patientId
-            });
-
-            res.status(201).json({ success: true, patientId });
 
         } catch (err: any) {
             console.error("❌ CREATE PATIENT ERROR:", err);
