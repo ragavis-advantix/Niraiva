@@ -1,6 +1,6 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
-import type { File } from "multer";
+
 import { smartExtract } from "../utils/extractors/smartExtractor";
 import { getSupabaseAdminClient } from "../lib/supabaseClient";
 import { verifyToken } from "../middleware/verifyToken";
@@ -12,7 +12,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 declare global {
     namespace Express {
         interface Request {
-            file?: File;
+            file?: Express.Multer.File;
             user?: any;
         }
     }
@@ -65,7 +65,7 @@ router.post(
                 return;
             }
 
-            const file = req.file;
+            const file = req.file as Express.Multer.File;
 
             console.log("📥 [UPLOAD-REPORT] File info:", {
                 fieldname: file.fieldname,

@@ -3,13 +3,13 @@ import { extractImage } from "./imageExtractor";
 import { extractJSON } from "./jsonExtractor";
 import { cleanText } from "../text/cleanText";
 import { inferMime } from "../file/inferMime";
-import type { File } from "multer";
+
 
 /**
  * Smart extractor - automatically chooses the right extraction method
  * based on file type
  */
-export async function smartExtract(file: File): Promise<string> {
+export async function smartExtract(file: Express.Multer.File): Promise<string> {
     const mime = inferMime(file.originalname, file.mimetype);
 
     console.log(`📄 Extracting file: ${file.originalname} (${mime})`);
