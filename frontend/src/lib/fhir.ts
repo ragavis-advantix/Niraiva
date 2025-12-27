@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = "http://localhost:5000";
+const DEFAULT_API_BASE_URL = "https://niraiva.onrender.com";
 
 export const getApiBaseUrl = () => {
     const envUrl = import.meta.env.VITE_API_BASE_URL;
