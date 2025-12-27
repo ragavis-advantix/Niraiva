@@ -382,7 +382,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
               emergency_contact: profile.emergencyContact || null,
             } as any;
 
-            setUserProfile(normalizedProfile as any);
+            if (normalizedProfile) {
+              setUserProfile(normalizedProfile);
+            }
 
             // Skip synthesis — we load from timeline_events for the real history
             /* 
@@ -525,7 +527,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
                   emergency_contact: profile.emergencyContact || null,
                 } as any;
 
-                setUserProfile(normalizedProfile as any);
+                if (normalizedProfile) {
+                  setUserProfile(normalizedProfile);
+                }
 
                 // Skip synthesis — we load from timeline_events for the real history
                 // const reportData = rpt.report || {};

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { getApiBaseUrl } from '@/lib/fhir';
 
 export function AuthCallback() {
   const navigate = useNavigate();
@@ -37,7 +38,7 @@ export function AuthCallback() {
           if (phone) {
             console.log('[AuthCallback] Phone metadata found, attempting to claim profile...');
             try {
-              const claimRes = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/user/claim-profile`, {
+              const claimRes = await fetch(`${getApiBaseUrl()}/api/user/claim-profile`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',

@@ -16,6 +16,7 @@ import {
     Activity,
     FileText
 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/fhir';
 import { motion } from 'framer-motion';
 import { HealthCard } from '@/components/HealthCard';
 import { Textarea } from '@/components/ui/textarea';
@@ -164,14 +165,22 @@ export default function DoctorPatientProfile() {
                     return;
                 }
 
-                // Map patient data
+                // Map patient data safely
+                const p = Array.isArray(linkData.patient) ? linkData.patient[0] : linkData.patient;
+
+                if (!p) {
+                    setError('Patient data is missing');
+                    setLoading(false);
+                    return;
+                }
+
                 const patientData = {
-                    user_id: linkData.patient.id,
-                    full_name: linkData.patient.name,
-                    gender: linkData.patient.gender,
-                    dob: linkData.patient.dob,
-                    phone: linkData.patient.phone,
-                    chronic_conditions: linkData.patient.chronic_conditions || []
+                    user_id: p.id,
+                    full_name: p.name,
+                    gender: p.gender,
+                    dob: p.dob,
+                    phone: p.phone,
+                    chronic_conditions: p.chronic_conditions || []
                 };
 
                 console.log('Patient loaded:', patientData);
@@ -234,7 +243,7 @@ export default function DoctorPatientProfile() {
             const session = await supabase.auth.getSession();
             const token = session.data.session?.access_token;
 
-            const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/doctor/notes`, {
+            const response = await fetch(`${getApiBaseUrl()}/api/doctor/notes`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -276,7 +285,7 @@ export default function DoctorPatientProfile() {
             if (uploadError) throw uploadError;
 
             // 2. Call Backend for AI Processing
-            const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/doctor/process-report`, {
+            const response = await fetch(`${getApiBaseUrl()}/api/doctor/process-report`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
