@@ -10,7 +10,9 @@ import type {
     Bundle,
 } from "@/types/fhir";
 
-const API_BASE = "http://localhost:8080/fhir";
+import { getApiBaseUrl } from "./fhir";
+
+const API_BASE = getApiBaseUrl() + "/fhir";
 
 interface ApiResponse<T> {
     ok: boolean;
