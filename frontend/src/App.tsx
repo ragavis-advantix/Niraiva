@@ -15,7 +15,7 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import VerifyEmail from "./pages/VerifyEmail";
-import { AuthCallback } from "./pages/AuthCallback";
+import AuthCallback from "./pages/AuthCallback";
 import HealthReportUpload from "./pages/HealthReportUpload";
 import NotFound from "./pages/NotFound";
 import DoctorLogin from "./pages/doctor/DoctorLogin";
@@ -126,7 +126,6 @@ const App = () => (
 
                   {/* Doctor routes */}
                   <Route path="/doctor/login" element={<DoctorLogin />} />
-                  <Route path="/doctor/callback" element={<DoctorCallback />} />
                   <Route
                     path="/doctor/dashboard"
                     element={
