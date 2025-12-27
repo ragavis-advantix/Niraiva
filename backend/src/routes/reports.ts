@@ -83,7 +83,7 @@ router.get("/user-health-parameters", verifyToken, async (req: any, res: Respons
  * Returns a consolidated summary (profile, parameters, medications, conditions)
  * from the latest processed health_report for the authenticated user
  */
-router.get("/user-summary", verifyToken, async (req: any, res: Response) => {
+const handleUserSummary = async (req: any, res: Response) => {
     try {
         const supabase = getSupabaseAdminClient();
 
@@ -116,12 +116,15 @@ router.get("/user-summary", verifyToken, async (req: any, res: Response) => {
             medications,
             conditions,
             uploaded_at: data[0].uploaded_at
-        });
+        };
     } catch (err) {
         console.error('user-summary error:', err);
         return res.status(500).json({ error: String(err) });
     }
-});
+};
+
+router.get("/user-summary", verifyToken, handleUserSummary);
+router.get("/user_summary", verifyToken, handleUserSummary);
 
 /**
  * GET /patient/:patientId
