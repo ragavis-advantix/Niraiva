@@ -599,10 +599,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
 
     console.log('User profile loaded:', data);
+    if (!data) {
+      console.log('No user profile found in DB');
+      return;
+    }
     // Normalize health_metrics JSON into convenient top-level shapes expected
-    // by the UI. The DB stores bmi/height/weight/blood_type inside
-    // `health_metrics` as simple values; some UI expects height/weight to be
-    // objects with {value, unit}.
     const hm = (data as any).health_metrics || {};
     const normalizedProfile = {
       ...data,
