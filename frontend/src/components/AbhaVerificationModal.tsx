@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getApiBaseUrl } from '@/lib/fhir';
 import {
   Dialog,
   DialogContent,
@@ -37,7 +38,7 @@ export function AbhaVerificationModal({ isOpen, onClose, onSuccess }: AbhaVerifi
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch('http://localhost:5000/api/abha/verify-mobile', {
+      const response = await fetch(`${getApiBaseUrl()}/api/abha/verify-mobile`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -64,7 +65,7 @@ export function AbhaVerificationModal({ isOpen, onClose, onSuccess }: AbhaVerifi
       setLoading(true);
       setError(null);
 
-      const response = await fetch('http://localhost:5000/api/abha/verify-aadhar', {
+      const response = await fetch(`${getApiBaseUrl()}/api/abha/verify-aadhar`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -93,7 +94,7 @@ export function AbhaVerificationModal({ isOpen, onClose, onSuccess }: AbhaVerifi
       setLoading(true);
       setError(null);
 
-      const response = await fetch('http://localhost:5000/api/abha/verify-otp', {
+      const response = await fetch(`${getApiBaseUrl()}/api/abha/verify-otp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

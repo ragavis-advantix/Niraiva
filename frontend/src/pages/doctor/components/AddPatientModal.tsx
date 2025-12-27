@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { getApiBaseUrl } from '@/lib/fhir';
 import { Loader2, Plus, X } from 'lucide-react';
 
 interface AddPatientModalProps {
@@ -51,7 +52,8 @@ export default function AddPatientModal({ open, onClose, onSuccess }: AddPatient
         setLoading(true);
 
         try {
-            const response = await fetch(`${import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'}/api/doctor/create-patient`, {
+            const apiBase = getApiBaseUrl(); // Moved outside headers for syntactic correctness
+            const response = await fetch(`${apiBase}/api/doctor/create-patient`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

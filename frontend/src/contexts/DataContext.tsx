@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import type { UserProfile, HealthParameter, TimelineEvent, ChronicCondition } from '@/utils/healthData';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { getApiBaseUrl } from '@/lib/fhir';
 
 type DataShape = {
   userProfile: UserProfile | null;
@@ -323,7 +324,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     console.log('Refreshing data for user:', user.id);
 
     // First try the backend reports endpoint — avoids 404 when user_profiles table is missing
-    const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000';
+    const apiBase = getApiBaseUrl();
     try {
       if (session?.access_token) {
         const resp = await fetch(`${apiBase}/api/reports/user-summary`, {
@@ -465,7 +466,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           if (!session?.access_token) {
             console.warn('No session token available to call backend reports API');
           } else {
-            const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000';
+            const apiBase = getApiBaseUrl();
             const resp = await fetch(`${apiBase}/api/reports/user-summary`, {
               headers: {
                 Authorization: `Bearer ${session.access_token}`,
@@ -551,7 +552,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
                 // Load extracted parameters for the UI as well
                 try {
                   let parameters: any[] = (rpt.report && rpt.report.data && rpt.report.data.parameters) || [];
-                  const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000';
+                  const apiBase = getApiBaseUrl();
                   if ((!parameters || parameters.length === 0) && session?.access_token) {
                     const pResp = await fetch(`${apiBase}/api/reports/user-health-parameters`, {
                       headers: { Authorization: `Bearer ${session.access_token}` },

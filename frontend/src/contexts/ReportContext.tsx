@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { getApiBaseUrl } from '@/lib/fhir';
 
 export interface Report {
     id: string;
@@ -130,7 +131,7 @@ export function ReportProvider({ children }: { children: ReactNode }) {
             formData.append('file', file);
 
             // Upload to backend API
-            const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+            const apiBase = getApiBaseUrl();
             const response = await fetch(`${apiBase}/api/upload-report`, {
                 method: 'POST',
                 headers: {

@@ -129,3 +129,5 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 app.listen(port, () => {
     console.log(`🚀 Backend running on http://localhost:${port}`);
 });
+
+export default app;

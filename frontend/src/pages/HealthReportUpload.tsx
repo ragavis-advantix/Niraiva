@@ -14,6 +14,7 @@ import Navbar from '@/components/Navbar';
 import { startGmailOAuth, startDriveOAuth, getGoogleStatus } from '@/lib/googleApi';
 import GmailPickerModal from '@/components/GmailPickerModal';
 import DrivePickerModal from '@/components/DrivePickerModal';
+import { getApiBaseUrl } from '@/lib/fhir';
 
 interface UploadedReport {
     id: string;
@@ -38,7 +39,7 @@ export default function HealthReportUpload() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cameraInputRef = useRef<HTMLInputElement>(null);
 
-    const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    const API_BASE = getApiBaseUrl();
 
     // ---------------------------
     // Fetch user reports + google status

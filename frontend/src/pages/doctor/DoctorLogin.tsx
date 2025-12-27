@@ -58,6 +58,7 @@ export default function DoctorLogin() {
                 .maybeSingle();
 
             console.log('Role check:', { roleRow, roleError, userId: user.id });
+            console.log("ROLE FETCH RESULT", roleRow, roleError);
 
             if (!roleRow || roleRow.role !== 'doctor') {
                 // Sign out the user if they're not a doctor

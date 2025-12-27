@@ -3,7 +3,9 @@
  * Handles OAuth flow and file import from Gmail and Google Drive
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+import { getApiBaseUrl } from './fhir';
+
+const API_BASE = getApiBaseUrl();
 
 /**
  * Redirect to OAuth start endpoint (browser will open Google)
