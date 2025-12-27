@@ -116,7 +116,7 @@ const handleUserSummary = async (req: any, res: Response) => {
             medications,
             conditions,
             uploaded_at: data[0].uploaded_at
-        };
+        });
     } catch (err) {
         console.error('user-summary error:', err);
         return res.status(500).json({ error: String(err) });
