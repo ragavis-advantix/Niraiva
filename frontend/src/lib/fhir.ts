@@ -2,10 +2,14 @@ const DEFAULT_API_BASE_URL = "https://niraiva.onrender.com";
 
 export const getApiBaseUrl = () => {
     const envUrl = import.meta.env.VITE_API_BASE_URL;
+    let url = DEFAULT_API_BASE_URL;
+
     if (typeof envUrl === "string" && envUrl.length > 0) {
-        return envUrl.replace(/\/+$/, "");
+        url = envUrl.replace(/\/+$/, "");
     }
-    return DEFAULT_API_BASE_URL;
+
+    console.log('[API URL Debug] Resolved API Base URL:', url, '(from env:', envUrl, ')');
+    return url;
 };
 
 const buildEndpoint = (path: string) => {
