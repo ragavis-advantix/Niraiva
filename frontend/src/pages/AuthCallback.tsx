@@ -20,9 +20,6 @@ export default function AuthCallback() {
                         } else {
                             navigate("/dashboard", { replace: true });
                         }
-                    })
-                    .catch(() => {
-                        navigate("/dashboard", { replace: true });
                     });
             } else {
                 navigate("/login", { replace: true });
