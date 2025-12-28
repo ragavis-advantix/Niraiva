@@ -15,6 +15,7 @@ import Profile from "./pages/Profile";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import VerifyEmail from "./pages/VerifyEmail";
+import AuthCallback from "./pages/AuthCallback";
 import HealthReportUpload from "./pages/HealthReportUpload";
 import NotFound from "./pages/NotFound";
 import DoctorLogin from "./pages/doctor/DoctorLogin";
@@ -120,6 +121,7 @@ const App = () => (
                   <Route path="/login" element={<Login />} />
                   <Route path="/signup" element={<Signup />} />
                   <Route path="/verify-email" element={<VerifyEmail />} />
+                  <Route path="/auth/callback" element={<AuthCallback />} />
 
                   {/* Doctor routes */}
                   <Route path="/doctor/login" element={<DoctorLogin />} />
