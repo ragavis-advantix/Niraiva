@@ -42,11 +42,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('[AuthContext] onAuthStateChange event=', event, 'session=', session);
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+
+      // Handle automatic redirection for login events
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+        const path = window.location.pathname;
+        if (path === '/login' || path === '/signup' || path === '/doctor/login' || path === '/' || path === '/auth/callback') {
+          try {
+            const { data: roleRow } = await supabase
+              .from('user_roles')
+              .select('role')
+              .eq('user_id', session.user.id)
+              .maybeSingle();
+
+            if (roleRow?.role === 'doctor') {
+              window.location.href = '/doctor/dashboard';
+            } else {
+              window.location.href = '/dashboard';
+            }
+          } catch (err) {
+            console.error('[AuthContext] Role check failed', err);
+            window.location.href = '/dashboard';
+          }
+        }
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -82,7 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: window.location.origin,
         },
       });
 
