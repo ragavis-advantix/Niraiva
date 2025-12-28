@@ -6,44 +6,34 @@ export default function AuthCallback() {
     const navigate = useNavigate();
 
     useEffect(() => {
-        const handleAuth = async () => {
-            const { data, error } = await supabase.auth.getSession();
-
-            if (error) {
-                console.error("Auth callback error:", error);
-                navigate("/login");
-                return;
-            }
-
-            console.log('Auth callback session retrieved:', data.session);
-            // Logic for redirection is also handled globally in AuthContext.tsx
-            // but we provide a fallback here for robustness.
+        supabase.auth.getSession().then(({ data }) => {
             if (data.session) {
-                // Check local path to see if it's a doctor or patient 
-                // (Handled by the global listener in AuthContext, but let's be safe)
-                const { data: roleRow } = await supabase
+                // Simple role check for the redirect
+                supabase
                     .from('user_roles')
                     .select('role')
                     .eq('user_id', data.session.user.id)
-                    .maybeSingle();
-
-                if (roleRow?.role === 'doctor') {
-                    navigate("/doctor/dashboard");
-                } else {
-                    navigate("/dashboard");
-                }
+                    .maybeSingle()
+                    .then(({ data: roleRow }) => {
+                        if (roleRow?.role === 'doctor') {
+                            navigate("/doctor/dashboard", { replace: true });
+                        } else {
+                            navigate("/dashboard", { replace: true });
+                        }
+                    })
+                    .catch(() => {
+                        navigate("/dashboard", { replace: true });
+                    });
             } else {
-                navigate("/login");
+                navigate("/login", { replace: true });
             }
-        };
-
-        handleAuth();
+        });
     }, [navigate]);
 
     return (
         <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mb-4"></div>
-            <p className="text-gray-600 font-medium">Signing you in…</p>
+            <p className="text-gray-600 font-medium">Completing sign-in…</p>
         </div>
     );
 }

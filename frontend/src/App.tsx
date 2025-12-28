@@ -105,100 +105,119 @@ const DoctorProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const AppRoutes = () => {
+  const location = useLocation();
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        {/* Public routes */}
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+
+        {/* Doctor routes */}
+        <Route path="/doctor/login" element={<DoctorLogin />} />
+        <Route
+          path="/doctor/dashboard"
+          element={
+            <DoctorProtectedRoute>
+              <DoctorDashboard />
+            </DoctorProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor/profile"
+          element={
+            <DoctorProtectedRoute>
+              <DoctorProfile />
+            </DoctorProtectedRoute>
+          }
+        />
+        <Route
+          path="/doctor/patient/:patientUserId"
+          element={
+            <DoctorProtectedRoute>
+              <DoctorPatientProfile />
+            </DoctorProtectedRoute>
+          }
+        />
+
+        {/* Protected routes */}
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/timeline"
+          element={
+            <ProtectedRoute>
+              <Timeline />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/diagnostic"
+          element={
+            <ProtectedRoute>
+              <Diagnostic />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/upload-reports"
+          element={
+            <ProtectedRoute>
+              <HealthReportUpload />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </AnimatePresence>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <AuthProvider>
-        <DataProvider>
-          <ReportProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <AnimatePresence mode="wait">
-                <Routes>
-                  {/* Public routes */}
-                  <Route path="/" element={<LandingPage />} />
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/signup" element={<Signup />} />
-                  <Route path="/verify-email" element={<VerifyEmail />} />
-                  <Route path="/auth/callback" element={<AuthCallback />} />
+      <BrowserRouter>
+        <Routes>
+          {/* Auth callback MUST be outside of all providers to avoid blocking */}
+          <Route path="/auth/callback" element={<AuthCallback />} />
 
-                  {/* Doctor routes */}
-                  <Route path="/doctor/login" element={<DoctorLogin />} />
-                  <Route
-                    path="/doctor/dashboard"
-                    element={
-                      <DoctorProtectedRoute>
-                        <DoctorDashboard />
-                      </DoctorProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/doctor/profile"
-                    element={
-                      <DoctorProtectedRoute>
-                        <DoctorProfile />
-                      </DoctorProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/doctor/patient/:patientUserId"
-                    element={
-                      <DoctorProtectedRoute>
-                        <DoctorPatientProfile />
-                      </DoctorProtectedRoute>
-                    }
-                  />
-
-                  {/* Protected routes */}
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <ProtectedRoute>
-                        <Dashboard />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/timeline"
-                    element={
-                      <ProtectedRoute>
-                        <Timeline />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/diagnostic"
-                    element={
-                      <ProtectedRoute>
-                        <Diagnostic />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/profile"
-                    element={
-                      <ProtectedRoute>
-                        <Profile />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path="/upload-reports"
-                    element={
-                      <ProtectedRoute>
-                        <HealthReportUpload />
-                      </ProtectedRoute>
-                    }
-                  />
-
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </AnimatePresence>
-            </BrowserRouter>
-          </ReportProvider>
-        </DataProvider>
-      </AuthProvider>
+          {/* Everything else is wrapped in providers */}
+          <Route
+            path="*"
+            element={
+              <AuthProvider>
+                <DataProvider>
+                  <ReportProvider>
+                    <>
+                      <Toaster />
+                      <Sonner />
+                      <AppRoutes />
+                    </>
+                  </ReportProvider>
+                </DataProvider>
+              </AuthProvider>
+            }
+          />
+        </Routes>
+      </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );
