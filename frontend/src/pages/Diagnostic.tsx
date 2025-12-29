@@ -218,14 +218,14 @@ const Diagnostic = () => {
                 <div className="flex justify-between mb-2">
                   <span className="text-gray-600 dark:text-gray-300">ABHA ID</span>
                   <span className="font-medium text-gray-900 dark:text-white">
-                    {userProfile.abha_number || 'Not set'}
+                    {userProfile?.abha_number || 'Not set'}
                   </span>
                 </div>
 
                 <div className="flex justify-between">
                   <span className="text-gray-600 dark:text-gray-300">Allergies</span>
                   <span className="font-medium text-gray-900 dark:text-white">
-                    {userProfile.allergies?.length || 0} known
+                    {userProfile?.allergies?.length || 0} known
                   </span>
                 </div>
 
