@@ -17,6 +17,47 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Ensure user has required profile and role entries (for manually created users)
+const ensureUserInitialized = async (user: User) => {
+  if (!user.id) return;
+
+  try {
+    // 1. Ensure profile exists
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!profile) {
+      console.log('[AuthContext] Creating missing user_profiles entry for:', user.id);
+      await supabase.from('user_profiles').insert({
+        user_id: user.id,
+        email: user.email,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    // 2. Ensure role exists (default to patient)
+    const { data: role } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!role) {
+      console.log('[AuthContext] Creating missing user_roles entry for:', user.id);
+      await supabase.from('user_roles').insert({
+        user_id: user.id,
+        role: 'patient',
+      });
+    }
+  } catch (err) {
+    console.error('[AuthContext] ensureUserInitialized error:', err);
+    // Don't throw - this is non-critical initialization
+  }
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -50,6 +91,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Handle automatic redirection for login events
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+        // Auto-initialize missing user data (for manually created users)
+        await ensureUserInitialized(session.user);
+
         const path = window.location.pathname;
         if (path === '/login' || path === '/signup' || path === '/doctor/login' || path === '/' || path === '/auth/callback') {
           try {
