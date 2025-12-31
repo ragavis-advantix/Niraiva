@@ -120,11 +120,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error, data } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) throw error;
+
+    // Ensure user initialization after successful login
+    if (data.user) {
+      await ensureUserInitialized(data.user);
+    }
   };
 
   const signUp = async (email: string, password: string, metadata?: any) => {
@@ -141,6 +146,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('[AuthContext] signUp error=', error);
       throw error;
     }
+
+    // Ensure user initialization after successful signup
+    if (data.user) {
+      await ensureUserInitialized(data.user);
+    }
+
     return data;
   };
 
