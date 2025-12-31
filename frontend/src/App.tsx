@@ -32,7 +32,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
   const location = useLocation();
 
+  console.log('[ProtectedRoute] user:', !!user, '| loading:', loading, '| path:', location.pathname);
+
   if (loading) {
+    console.log('[ProtectedRoute] ↳ Loading spinner shown');
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
@@ -41,9 +44,11 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
 
   if (!user) {
+    console.log('[ProtectedRoute] ↳ No user, redirecting to /login');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  console.log('[ProtectedRoute] ✅ User authenticated, showing children');
   return <>{children}</>;
 };
 

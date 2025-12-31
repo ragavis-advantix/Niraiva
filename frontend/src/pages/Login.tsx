@@ -26,18 +26,29 @@ export default function Login() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    console.log('[Login] 🔑 handleSubmit START');
 
     try {
+      console.log('[Login] ↳ Calling signIn()...');
       await signIn(email, password);
+      console.log('[Login] ✅ signIn() completed');
+
+      console.log('[Login] ↳ Waiting for state to settle...');
+      // Wait a moment for Supabase session to be fully committed
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      console.log('[Login] ↳ Navigating to:', from);
+      console.log('[Login] 🔄 Calling navigate()...');
       navigate(from, { replace: true });
+      console.log('[Login] ↳ navigate() called (page should change)');
     } catch (error: any) {
+      console.error('[Login] ❌ Error:', error);
+      setLoading(false);
       toast({
         title: 'Error',
         description: error.message || 'Failed to sign in',
         variant: 'destructive',
       });
-    } finally {
-      setLoading(false);
     }
   };
 

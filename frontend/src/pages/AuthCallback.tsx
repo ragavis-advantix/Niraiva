@@ -10,11 +10,11 @@ export default function AuthCallback() {
             console.log('[AuthCallback] 🔄 CALLBACK PAGE LOADED');
             console.log('[AuthCallback] ↳ URL:', window.location.href);
             console.log('[AuthCallback] ↳ Hash:', window.location.hash.substring(0, 50) + '...');
-            
+
             try {
                 console.log('[AuthCallback] ↳ Calling supabase.auth.getSession()...');
                 const { data, error } = await supabase.auth.getSession();
-                
+
                 if (error) {
                     console.error('[AuthCallback] ❌ getSession error:', error);
                     console.log('[AuthCallback] 🔄 REDIRECT: /login');
@@ -28,7 +28,7 @@ export default function AuthCallback() {
 
                 if (data.session) {
                     console.log('[AuthCallback] 👤 User authenticated, fetching role...');
-                    
+
                     try {
                         // Simple role check for the redirect
                         const { data: roleData, error: roleError } = await supabase
