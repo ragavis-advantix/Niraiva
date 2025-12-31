@@ -132,9 +132,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const path = window.location.pathname;
         console.log('[AuthContext] ↳ Checking if redirect is needed (current path:', path + ')');
+        console.log('[AuthContext] ↳ pathname check - /login:', path === '/login', '| /signup:', path === '/signup', '| /doctor/login:', path === '/doctor/login', '| /:', path === '/', '| /auth/callback:', path === '/auth/callback');
         
         if (path === '/login' || path === '/signup' || path === '/doctor/login' || path === '/' || path === '/auth/callback') {
-          console.log('[AuthContext] ↳ Yes, redirect needed from:', path);
+          console.log('[AuthContext] ↳ ✅ Redirect condition met, current path:', path);
+          
+          // Small delay to ensure state is fully updated
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
           try {
             console.log('[AuthContext] ↳ Fetching user role from database...');
             const { data: roleRow, error: roleError } = await supabase
@@ -160,15 +165,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               console.log('[AuthContext] 🏥 User is PATIENT, redirecting to:', redirectUrl);
             }
 
-            console.log('[AuthContext] 🔄 REDIRECT:', 'window.location.href =', redirectUrl);
+            console.log('[AuthContext] 🔄 EXECUTING REDIRECT to:', redirectUrl);
+            console.log('[AuthContext] ↳ Setting window.location.href =', redirectUrl);
             window.location.href = redirectUrl;
+            console.log('[AuthContext] ↳ Redirect command sent (page should now reload)');
           } catch (err) {
             console.error('[AuthContext] ❌ Role check failed:', err);
-            console.log('[AuthContext] 🔄 REDIRECT (fallback):', 'window.location.href = /dashboard');
+            console.log('[AuthContext] 🔄 EXECUTING FALLBACK REDIRECT to: /dashboard');
+            console.log('[AuthContext] ↳ Setting window.location.href = /dashboard');
             window.location.href = '/dashboard';
+            console.log('[AuthContext] ↳ Fallback redirect command sent');
           }
         } else {
-          console.log('[AuthContext] ↳ No redirect needed (already on allowed page)');
+          console.log('[AuthContext] ↳ ❌ No redirect condition met - already on page:', path);
+          console.log('[AuthContext] ↳ No auto-redirect will occur');
         }
       } else if (event === 'SIGNED_OUT') {
         console.log('[AuthContext] 👋 User signed out');
