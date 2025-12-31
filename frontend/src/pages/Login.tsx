@@ -18,7 +18,10 @@ export default function Login() {
   const location = useLocation();
   const { toast } = useToast();
 
-  const from = (location.state as any)?.from?.pathname || '/dashboard';
+  // precise fix: never allow redirect to landing page ('/')
+  const locationState = location.state as any;
+  const rawFrom = locationState?.from?.pathname;
+  const from = (rawFrom && rawFrom !== '/') ? rawFrom : '/dashboard';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
