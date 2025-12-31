@@ -41,6 +41,8 @@ const Dashboard = () => {
   const { user, session } = useAuth();
   const [showAbhaModal, setShowAbhaModal] = useState(false);
 
+  console.log('[Dashboard] 🎯 MOUNTED - User:', user?.email, '| Session:', !!session);
+
   const handleLinkABHA = () => {
     setShowAbhaModal(true);
   };
