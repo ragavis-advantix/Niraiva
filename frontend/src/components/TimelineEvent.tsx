@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { ChevronRight, Pill } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { ChevronRight } from 'lucide-react';
-import TimelineDetailsModal from './TimelineDetailsModal';
 
 import { TimelineEvent as TimelineEventType } from '@/utils/healthData';
 
 interface TimelineEventProps {
-  event: TimelineEventType;
+  event: any; // Flexible for derived metadata
   isLast?: boolean;
 }
 
@@ -21,8 +19,14 @@ const iconMap: Record<string, string> = {
   ai_summary: 'S'
 };
 
+const statusConfig: Record<string, { color: string; bg: string; border: string }> = {
+  completed: { color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+  pending: { color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
+  critical: { color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' }
+};
+
 const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false }) => {
-  const [showModal, setShowModal] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const getCategoryColor = (category: string) => {
     switch (category?.toLowerCase()) {
@@ -46,8 +50,10 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false }) 
     }
   };
 
-  const category = event.category || 'note';
+  const category = event.type || event.category || 'note';
   const icon = iconMap[category.toLowerCase()] || '•';
+  const status = event.status || 'completed';
+  const currentStatus = statusConfig[status] || statusConfig.completed;
 
   return (
     <div className={cn("relative pl-10", !isLast && "pb-10")}>
@@ -86,23 +92,21 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false }) 
           </p>
 
           <button
-            onClick={() => setShowModal(true)}
+            onClick={() => setIsExpanded(!isExpanded)}
             className="text-xs font-bold text-niraiva-600 hover:text-niraiva-700 flex items-center mt-2 group transition-colors"
           >
-            SHOW DETAILS
-            <ChevronRight className="h-3 w-3 ml-0.5 transform group-hover:translate-x-0.5 transition-transform" />
+            {isExpanded ? 'HIDE DETAILS' : 'SHOW DETAILS'}
+            <ChevronRight className={cn("h-3 w-3 ml-0.5 transition-transform", isExpanded ? "rotate-90" : "group-hover:translate-x-0.5")} />
           </button>
         </div>
 
         {/* Right Badges */}
         <div className="flex flex-row md:flex-col items-center md:items-end gap-2 shrink-0">
           <div className={cn(
-            "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border",
-            event.status === 'completed'
-              ? "bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400"
-              : "bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-900/20 dark:text-amber-400"
+            "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border transition-colors",
+            currentStatus.bg, currentStatus.color, currentStatus.border
           )}>
-            {event.status || 'completed'}
+            {status}
           </div>
           <div className={cn(
             "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border",
@@ -113,11 +117,81 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false }) 
         </div>
       </motion.div>
 
-      <TimelineDetailsModal
-        isOpen={showModal}
-        onClose={() => setShowModal(false)}
-        event={event}
-      />
+      {/* Expandable Details Panel */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden ml-1 md:ml-12"
+          >
+            <div className="mt-2 p-5 bg-slate-50/80 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-700 shadow-inner">
+              {category === 'test' && event.metadata?.parameters && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Lab Investigations</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {event.metadata.parameters.map((p: any, i: number) => (
+                      <div key={i} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-xl border border-slate-100 dark:border-gray-700 shadow-sm">
+                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{p.name}</span>
+                        <div className="text-right">
+                          <span className={cn("text-sm font-bold", p.status === 'critical' ? 'text-red-500' : 'text-slate-800 dark:text-white')}>
+                            {p.value} {p.unit}
+                          </span>
+                          {p.status && (
+                            <span className={cn("ml-2 text-[10px] font-bold uppercase", p.status === 'critical' ? 'text-red-500' : 'text-emerald-500')}>
+                              ({p.status})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {category === 'medication' && event.metadata?.medications && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Prescription Details</h4>
+                  <div className="space-y-2">
+                    {event.metadata.medications.map((m: any, i: number) => (
+                      <div key={i} className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl border border-slate-100 dark:border-gray-700 shadow-sm">
+                        <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                          <Pill className="h-4 w-4 text-blue-600" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold text-slate-800 dark:text-white">{m.name}</div>
+                          <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {category === 'report' && (
+                <div className="prose prose-sm dark:prose-invert">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Clinical Note</h4>
+                  <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                    {event.description}
+                  </p>
+                </div>
+              )}
+
+              {event.source_report?.id && (
+                <div className="mt-5 pt-4 border-t border-slate-200/50 dark:border-gray-700 flex justify-end">
+                  <button
+                    onClick={() => window.location.href = `/patient/dashboard`}
+                    className="text-[10px] font-bold text-slate-400 hover:text-niraiva-600 transition-colors uppercase tracking-widest flex items-center gap-1"
+                  >
+                    View in health metrics <ChevronRight className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

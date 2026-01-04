@@ -7,7 +7,10 @@ import { getApiBaseUrl } from '@/lib/fhir';
 export interface Report {
     id: string;
     name: string;
+    title?: string;
+    summary?: string;
     date: string;
+    uploaded_at: string;
     patientId: string;
     report_json: any; // ✅ REQUIRED
     content?: {
@@ -72,7 +75,10 @@ export function ReportProvider({ children }: { children: ReactNode }) {
                     return {
                         id: report.id,
                         name: report.file_type || 'Health Report',
+                        title: report.report_json?.metadata?.title || report.file_type || 'Medical Report',
+                        summary: report.report_json?.summary || report.summary || 'Clinical record processed',
                         date: report.uploaded_at,
+                        uploaded_at: report.uploaded_at,
                         patientId: report.patient_id || 'N/A',
                         report_json: report.report_json, // ✅ DO NOT STRIP THIS
                         content: {

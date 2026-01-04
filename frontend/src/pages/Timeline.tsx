@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Info, Calendar as CalendarIcon } from 'lucide-react';
 import Navbar from '@/components/Navbar';
@@ -6,26 +6,78 @@ import TimelineEvent from '@/components/TimelineEvent';
 import { VoiceCommand } from '@/components/VoiceCommand';
 import { useData } from '@/contexts/DataContext';
 import { cn } from '@/lib/utils';
+import { useReports } from '@/contexts/ReportContext';
+
+const normalizeName = (name: string) =>
+  name.toLowerCase().replace(/[^a-z\s]/g, '').trim();
 
 const Timeline = () => {
-  const { timelineEvents } = useData();
+  const { reports, loading: reportsLoading } = useReports();
   const [searchQuery, setSearchQuery] = useState('');
-  const [filteredEvents, setFilteredEvents] = useState(timelineEvents);
+
+  const derivedEvents = useMemo(() => {
+    if (!reports || reports.length === 0) return [];
+
+    const events: any[] = [];
+
+    reports.forEach((r) => {
+      const data = r.report_json?.data;
+      const title = r.title || 'Medical Report';
+      const date = r.date || r.uploaded_at || new Date().toISOString();
+      const content = JSON.stringify(data || {}).toLowerCase();
+
+      // Detection logic
+      let type: 'test' | 'medication' | 'appointment' | 'report' = 'report';
+      let status: 'completed' | 'pending' | 'critical' = 'completed';
+      let description = r.summary || 'Clinical record processed';
+
+      if (data?.parameters && data.parameters.length > 0) {
+        type = 'test';
+        description = `Diagnostic findings: ${data.parameters.slice(0, 2).map((p: any) => p.name).join(', ')}...`;
+
+        // Check for critical status
+        if (data.parameters.some((p: any) => p.status === 'critical')) {
+          status = 'critical';
+        }
+      } else if (data?.medications && data.medications.length > 0) {
+        type = 'medication';
+        description = `Prescription: ${data.medications.slice(0, 2).map((m: any) => m.name).join(', ')}...`;
+      } else if (content.includes('follow up') || content.includes('dr.') || content.includes('consultation')) {
+        type = 'appointment';
+        description = 'Doctor consultation recorded';
+      }
+
+      events.push({
+        id: r.id,
+        title,
+        description,
+        type,
+        status,
+        event_time: date,
+        metadata: data,
+        source_report: r
+      });
+    });
+
+    return events.sort((a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime());
+  }, [reports]);
+
+  const [filteredEvents, setFilteredEvents] = useState<any[]>([]);
 
   useEffect(() => {
     if (!searchQuery) {
-      setFilteredEvents(timelineEvents);
+      setFilteredEvents(derivedEvents);
       return;
     }
 
     const query = searchQuery.toLowerCase();
-    const filtered = timelineEvents.filter(event =>
+    const filtered = derivedEvents.filter(event =>
       event.title?.toLowerCase().includes(query) ||
       event.description?.toLowerCase().includes(query) ||
-      event.category?.toLowerCase().includes(query)
+      event.type?.toLowerCase().includes(query)
     );
     setFilteredEvents(filtered);
-  }, [searchQuery, timelineEvents]);
+  }, [searchQuery, derivedEvents]);
 
   // Reset page position on load
   useEffect(() => {
@@ -42,7 +94,7 @@ const Timeline = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-12 flex flex-col md:flex-row items-center justify-between gap-6"
         >
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-4xl font-black tracking-tight text-slate-800 dark:text-white mb-2">
               Health <span className="text-niraiva-600">Journey</span>
             </h1>
@@ -93,12 +145,17 @@ const Timeline = () => {
               </div>
             </div>
 
-            <div className="space-y-2 relative">
+            <div className="space-y-4 relative">
               {/* Vertical Line */}
               <div className="absolute left-[19px] top-6 bottom-6 w-[2px] bg-slate-50 dark:bg-gray-800 hidden md:block" />
 
               <AnimatePresence mode="popLayout">
-                {filteredEvents.length > 0 ? (
+                {reportsLoading ? (
+                  <div className="text-center py-20">
+                    <div className="w-12 h-12 border-4 border-niraiva-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <p className="mt-4 text-slate-500 font-medium">Loading medical journey...</p>
+                  </div>
+                ) : filteredEvents.length > 0 ? (
                   filteredEvents.map((event, index) => (
                     <TimelineEvent
                       key={event.id}
@@ -115,7 +172,7 @@ const Timeline = () => {
                     <Info className="h-12 w-12 text-slate-300 mx-auto mb-4" />
                     <h3 className="text-lg font-bold text-slate-600 dark:text-slate-400">No medical history available yet.</h3>
                     <p className="text-sm text-slate-400 max-w-xs mx-auto mt-2">
-                      Events will appear here once reports are uploaded or clinical notes are added.
+                      All your uploaded reports (9 total) will appear here once processed.
                     </p>
                   </motion.div>
                 )}
