@@ -102,7 +102,7 @@ const Dashboard = () => {
       }
     }
 
-    // Aggregated data from all reports
+    // Aggregated parameters and conditions from all reports
     reports.forEach((r) => {
       const data = r.report_json?.data;
       if (!data) return;
@@ -115,7 +115,6 @@ const Dashboard = () => {
           timestamp: p.timestamp || p.date || r.date || new Date().toISOString()
         }));
 
-        // Filter for PRIMARY VITALS
         const primaryParams = normalizedParams.filter(p =>
           PRIMARY_VITALS.includes(normalizeClinicalName(p.name))
         );
@@ -124,19 +123,30 @@ const Dashboard = () => {
       }
 
       if (Array.isArray(data.conditions)) {
-        // Filter for PRIMARY CHRONIC CONDITIONS
         const chronicOnly = data.conditions.filter((c: any) =>
           PRIMARY_CHRONIC_CONDITIONS.includes(normalizeClinicalName(c.name))
         );
         conditions.push(...chronicOnly);
       }
-
-      if (Array.isArray(data.medications)) {
-        medications.push(...data.medications);
-      }
     });
 
-    // Deduplicate parameters by name (keeping the newest one)
+    // MEDICATIONS: Select ONLY from the latest report that has a medication list
+    // Reports are already sorted newest first by the context
+    let rawMedications: any[] = [];
+    for (const r of reports) {
+      const meds = r.report_json?.data?.medications;
+      if (Array.isArray(meds) && meds.length > 0) {
+        rawMedications = meds.map((m: any, idx: number) => ({
+          ...m,
+          id: m.id || `med-${normalizeClinicalName(m.name || 'unnamed')}-${idx}`,
+          name: m.name?.trim(),
+          startDate: m.startDate || r.uploaded_at || r.date
+        }));
+        break; // ⛔ STOP at latest valid medication list
+      }
+    }
+
+    // Deduplicate parameters (keeping newest)
     const uniqueParametersMap = new Map<string, any>();
     parameters.forEach(p => {
       const key = normalizeClinicalName(p.name);
@@ -160,11 +170,21 @@ const Dashboard = () => {
     });
     const uniqueConditions = Array.from(uniqueConditionsMap.values());
 
+    // Deduplicate medications (final safety check)
+    const uniqueMedMap = new Map<string, any>();
+    rawMedications.forEach(med => {
+      const key = normalizeClinicalName(med.name || 'unnamed');
+      if (!uniqueMedMap.has(key)) {
+        uniqueMedMap.set(key, med);
+      }
+    });
+    const uniqueMedications = Array.from(uniqueMedMap.values());
+
     return {
       profile,
       parameters: uniqueParameters,
       conditions: uniqueConditions,
-      medications
+      medications: uniqueMedications
     };
   }, [reports]);
 
@@ -338,18 +358,29 @@ const Dashboard = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {derivedData.medications.map((med: any, index: number) => (
-                  <div key={index} className="flex items-center gap-3 p-2 rounded-lg border border-gray-100 dark:border-dark-cardBorder bg-white dark:bg-dark-card">
-                    <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-md">
-                      <Pill className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                {derivedData.medications.map((med: any, index: number) => {
+                  const daysAgo = med.startDate
+                    ? Math.floor((Date.now() - new Date(med.startDate).getTime()) / (1000 * 60 * 60 * 24))
+                    : null;
+
+                  return (
+                    <div key={med.id || index} className="flex items-center gap-3 p-2 rounded-lg border border-gray-100 dark:border-dark-cardBorder bg-white dark:bg-dark-card">
+                      <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-md">
+                        <Pill className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium text-light-text dark:text-dark-text truncate">{med.name}</div>
+                          {daysAgo !== null && daysAgo <= 7 && (
+                            <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wider">New</span>
+                          )}
+                        </div>
+                        <div className="text-sm text-light-subtext dark:text-dark-subtext truncate">{med.dosage} • {med.frequency}</div>
+                      </div>
+                      <div className="text-sm text-light-subtext dark:text-dark-subtext whitespace-nowrap">{med.startDate ? `Since ${new Date(med.startDate).toLocaleDateString('en-IN')}` : ''}</div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-light-text dark:text-dark-text truncate">{med.name}</div>
-                      <div className="text-sm text-light-subtext dark:text-dark-subtext truncate">{med.dosage} • {med.frequency}</div>
-                    </div>
-                    <div className="text-sm text-light-subtext dark:text-dark-subtext whitespace-nowrap">{med.startDate ? `Since ${new Date(med.startDate).toLocaleDateString('en-IN')}` : ''}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </motion.div>
           )}
