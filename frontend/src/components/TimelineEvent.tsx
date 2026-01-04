@@ -6,8 +6,43 @@ import { cn } from '@/lib/utils';
 import { TimelineEvent as TimelineEventType } from '@/utils/healthData';
 
 interface TimelineEventProps {
-  event: any; // Flexible for derived metadata
+  event: any;
   isLast?: boolean;
+}
+
+function LabResults({ data }: { data: any }) {
+  if (!data?.labs) return <p className="text-xs text-slate-500 italic">No lab values found.</p>;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {Object.entries(data.labs).map(([key, value]) => (
+        <div key={key} className="rounded-xl bg-white dark:bg-gray-800 p-3 shadow-sm border border-slate-100 dark:border-gray-700 flex flex-col">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{key}</p>
+          <p className="text-sm font-bold text-slate-800 dark:text-white mt-0.5">{value as string}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MedicationList({ data }: { data: any }) {
+  if (!data?.medications) return <p className="text-xs text-slate-500 italic">No medications detected.</p>;
+
+  return (
+    <div className="space-y-2">
+      {data.medications.map((med: any, i: number) => (
+        <div key={i} className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl border border-slate-100 dark:border-gray-700 shadow-sm">
+          <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+            <Pill className="h-4 w-4 text-amber-600" />
+          </div>
+          <div>
+            <div className="text-sm font-bold text-slate-800 dark:text-white">{med.name}</div>
+            <div className="text-xs text-slate-500">{med.dosage} · {med.frequency}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const iconMap: Record<string, string> = {
@@ -50,7 +85,7 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false }) 
     }
   };
 
-  const category = event.type || event.category || 'note';
+  const category = event.event_type || 'note';
   const icon = iconMap[category.toLowerCase()] || '•';
   const status = event.status || 'completed';
   const currentStatus = statusConfig[status] || statusConfig.completed;
@@ -127,67 +162,46 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false }) 
             className="overflow-hidden ml-1 md:ml-12"
           >
             <div className="mt-2 p-5 bg-slate-50/80 dark:bg-gray-800/50 rounded-2xl border border-slate-100 dark:border-gray-700 shadow-inner">
-              {category === 'test' && event.metadata?.parameters && (
+              {category === 'test' && event.metadata?.report_json && (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Lab Investigations</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {event.metadata.parameters.map((p: any, i: number) => (
-                      <div key={i} className="flex justify-between items-center p-3 bg-white dark:bg-gray-800 rounded-xl border border-slate-100 dark:border-gray-700 shadow-sm">
-                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{p.name}</span>
-                        <div className="text-right">
-                          <span className={cn("text-sm font-bold", p.status === 'critical' ? 'text-red-500' : 'text-slate-800 dark:text-white')}>
-                            {p.value} {p.unit}
-                          </span>
-                          {p.status && (
-                            <span className={cn("ml-2 text-[10px] font-bold uppercase", p.status === 'critical' ? 'text-red-500' : 'text-emerald-500')}>
-                              ({p.status})
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                    <div className="w-1 h-3 bg-purple-500 rounded-full" />
+                    Lab Investigations
+                  </h4>
+                  <LabResults data={event.metadata.report_json} />
                 </div>
               )}
 
-              {category === 'medication' && event.metadata?.medications && (
+              {category === 'medication' && event.metadata?.report_json && (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Prescription Details</h4>
-                  <div className="space-y-2">
-                    {event.metadata.medications.map((m: any, i: number) => (
-                      <div key={i} className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl border border-slate-100 dark:border-gray-700 shadow-sm">
-                        <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                          <Pill className="h-4 w-4 text-blue-600" />
-                        </div>
-                        <div>
-                          <div className="text-sm font-bold text-slate-800 dark:text-white">{m.name}</div>
-                          <div className="text-xs text-slate-500">{m.dosage} • {m.frequency}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                    <div className="w-1 h-3 bg-amber-500 rounded-full" />
+                    Prescription Details
+                  </h4>
+                  <MedicationList data={event.metadata.report_json} />
                 </div>
               )}
 
-              {category === 'report' && (
+              {(category === 'report' || category === 'note') && (
                 <div className="prose prose-sm dark:prose-invert">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Clinical Note</h4>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                    <div className="w-1 h-3 bg-cyan-500 rounded-full" />
+                    Clinical Note
+                  </h4>
                   <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
                     {event.description}
                   </p>
                 </div>
               )}
 
-              {event.source_report?.id && (
-                <div className="mt-5 pt-4 border-t border-slate-200/50 dark:border-gray-700 flex justify-end">
-                  <button
-                    onClick={() => window.location.href = `/patient/dashboard`}
-                    className="text-[10px] font-bold text-slate-400 hover:text-niraiva-600 transition-colors uppercase tracking-widest flex items-center gap-1"
-                  >
-                    View in health metrics <ChevronRight className="h-3 w-3" />
-                  </button>
-                </div>
-              )}
+              <div className="mt-5 pt-4 border-t border-slate-200/50 dark:border-gray-700 flex justify-end">
+                <button
+                  onClick={() => window.location.href = `/patient/dashboard`}
+                  className="text-[10px] font-bold text-slate-400 hover:text-niraiva-600 transition-colors uppercase tracking-widest flex items-center gap-1"
+                >
+                  View in health metrics <ChevronRight className="h-3 w-3" />
+                </button>
+              </div>
             </div>
           </motion.div>
         )}

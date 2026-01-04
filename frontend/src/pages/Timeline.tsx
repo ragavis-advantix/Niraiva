@@ -1,83 +1,64 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Info, Calendar as CalendarIcon } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import TimelineEvent from '@/components/TimelineEvent';
 import { VoiceCommand } from '@/components/VoiceCommand';
-import { useData } from '@/contexts/DataContext';
-import { cn } from '@/lib/utils';
-import { useReports } from '@/contexts/ReportContext';
-
-const normalizeName = (name: string) =>
-  name.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 
 const Timeline = () => {
-  const { reports, loading: reportsLoading } = useReports();
+  const { user } = useAuth();
+  const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-
-  const derivedEvents = useMemo(() => {
-    if (!reports || reports.length === 0) return [];
-
-    const events: any[] = [];
-
-    reports.forEach((r) => {
-      const data = r.report_json?.data;
-      const title = r.title || 'Medical Report';
-      const date = r.date || r.uploaded_at || new Date().toISOString();
-      const content = JSON.stringify(data || {}).toLowerCase();
-
-      // Detection logic
-      let type: 'test' | 'medication' | 'appointment' | 'report' = 'report';
-      let status: 'completed' | 'pending' | 'critical' = 'completed';
-      let description = r.summary || 'Clinical record processed';
-
-      if (data?.parameters && data.parameters.length > 0) {
-        type = 'test';
-        description = `Diagnostic findings: ${data.parameters.slice(0, 2).map((p: any) => p.name).join(', ')}...`;
-
-        // Check for critical status
-        if (data.parameters.some((p: any) => p.status === 'critical')) {
-          status = 'critical';
-        }
-      } else if (data?.medications && data.medications.length > 0) {
-        type = 'medication';
-        description = `Prescription: ${data.medications.slice(0, 2).map((m: any) => m.name).join(', ')}...`;
-      } else if (content.includes('follow up') || content.includes('dr.') || content.includes('consultation')) {
-        type = 'appointment';
-        description = 'Doctor consultation recorded';
-      }
-
-      events.push({
-        id: r.id,
-        title,
-        description,
-        type,
-        status,
-        event_time: date,
-        metadata: data,
-        source_report: r
-      });
-    });
-
-    return events.sort((a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime());
-  }, [reports]);
-
   const [filteredEvents, setFilteredEvents] = useState<any[]>([]);
 
   useEffect(() => {
+    const fetchTimeline = async () => {
+      if (!user?.id) return;
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from("timeline_events")
+          .select(`
+            id,
+            event_type,
+            title,
+            description,
+            status,
+            event_time,
+            metadata
+          `)
+          .eq("patient_id", user.id)
+          .order("event_time", { ascending: false });
+
+        if (error) throw error;
+        setEvents(data || []);
+      } catch (err) {
+        console.error('Error fetching timeline:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTimeline();
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!searchQuery) {
-      setFilteredEvents(derivedEvents);
+      setFilteredEvents(events);
       return;
     }
 
     const query = searchQuery.toLowerCase();
-    const filtered = derivedEvents.filter(event =>
+    const filtered = events.filter(event =>
       event.title?.toLowerCase().includes(query) ||
       event.description?.toLowerCase().includes(query) ||
-      event.type?.toLowerCase().includes(query)
+      event.event_type?.toLowerCase().includes(query)
     );
     setFilteredEvents(filtered);
-  }, [searchQuery, derivedEvents]);
+  }, [searchQuery, events]);
 
   // Reset page position on load
   useEffect(() => {
@@ -150,7 +131,7 @@ const Timeline = () => {
               <div className="absolute left-[19px] top-6 bottom-6 w-[2px] bg-slate-50 dark:bg-gray-800 hidden md:block" />
 
               <AnimatePresence mode="popLayout">
-                {reportsLoading ? (
+                {loading ? (
                   <div className="text-center py-20">
                     <div className="w-12 h-12 border-4 border-niraiva-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                     <p className="mt-4 text-slate-500 font-medium">Loading medical journey...</p>
