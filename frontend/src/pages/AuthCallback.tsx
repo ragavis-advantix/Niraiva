@@ -25,47 +25,46 @@ export default function AuthCallback() {
 
                 const user = data.session.user;
 
-                // Fetch user role from database
-                const { data: profile, error: profileError } = await supabase
+                // 1. Ensure profile exists (DO NOT query role here)
+                const { data: profile } = await supabase
                     .from("user_profiles")
+                    .select("id")
+                    .eq("user_id", user.id)
+                    .maybeSingle();
+
+                if (!profile) {
+                    console.log('[AuthCallback] ✏️ Profile not found, creating default entry');
+                    await supabase.from("user_profiles").insert({
+                        user_id: user.id,
+                        email: user.email,
+                    });
+                }
+
+                // 2. Fetch role ONLY from user_roles
+                console.log('[AuthCallback] ↳ Fetching role from user_roles...');
+                let { data: roleRow } = await supabase
+                    .from("user_roles")
                     .select("role")
                     .eq("user_id", user.id)
                     .maybeSingle();
 
-                if (profileError) {
-                    console.error('[AuthCallback] ⚠️ Profile fetch error:', profileError);
-                }
-
-                // Auto-create profile if missing (safe fallback for Google OAuth)
-                if (!profile) {
-                    console.log('[AuthCallback] ✏️ Profile not found, creating default patient profile');
-                    await supabase.from("user_profiles").insert({
-                        user_id: user.id,
-                        email: user.email,
-                        role: 'patient',
-                        created_at: new Date().toISOString(),
-                    });
-
-                    // Also ensure they have a role entry
-                    await supabase.from("user_roles").insert({
+                if (!roleRow) {
+                    console.log('[AuthCallback] ✏️ Role not found, creating default patient role');
+                    const { data: newRole } = await supabase.from("user_roles").insert({
                         user_id: user.id,
                         role: 'patient',
-                    });
-
-                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (new user)');
-                    navigate("/patient/dashboard", { replace: true });
-                    return;
+                    }).select('role').single();
+                    roleRow = newRole;
                 }
 
-                const userRole = profile?.role;
+                const userRole = roleRow?.role || 'patient';
                 console.log('[AuthCallback] ✅ User role:', userRole);
 
                 if (userRole === "doctor") {
-                    console.log('[AuthCallback] 🔄 REDIRECT: /doctor/dashboard (doctor)');
+                    console.log('[AuthCallback] 🔄 REDIRECT: /doctor/dashboard');
                     navigate("/doctor/dashboard", { replace: true });
                 } else {
-                    // Default to patient dashboard for 'patient' or any other role
-                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (default)');
+                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard');
                     navigate("/patient/dashboard", { replace: true });
                 }
             } catch (err) {

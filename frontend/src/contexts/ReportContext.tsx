@@ -9,6 +9,7 @@ export interface Report {
     name: string;
     date: string;
     patientId: string;
+    report_json: any; // ✅ REQUIRED
     content?: {
         profile?: {
             bloodType?: string;
@@ -24,6 +25,7 @@ interface ReportContextType {
     addReport: (file: File) => Promise<void>;
     removeReport: (id: string) => void;
     isProcessing: boolean;
+    loading: boolean;
     refreshReports: () => Promise<void>;
 }
 
@@ -32,11 +34,13 @@ const ReportContext = createContext<ReportContextType | undefined>(undefined);
 export function ReportProvider({ children }: { children: ReactNode }) {
     const [reports, setReports] = useState<Report[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [loading, setLoading] = useState(true);
     const { user, session } = useAuth();
 
     // Fetch reports from Supabase
     const fetchReports = async (userId: string) => {
         try {
+            setLoading(true);
             console.log('🔍 Fetching reports for user:', userId);
 
             const { data, error } = await supabase
@@ -70,6 +74,7 @@ export function ReportProvider({ children }: { children: ReactNode }) {
                         name: report.file_type || 'Health Report',
                         date: report.uploaded_at,
                         patientId: report.patient_id || 'N/A',
+                        report_json: report.report_json, // ✅ DO NOT STRIP THIS
                         content: {
                             profile: report.report_json?.data?.profile,
                             extractedParameters: report.report_json?.data?.parameters || [],
@@ -90,6 +95,8 @@ export function ReportProvider({ children }: { children: ReactNode }) {
             }
         } catch (error) {
             console.error('❌ Error in fetchReports:', error);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -108,6 +115,7 @@ export function ReportProvider({ children }: { children: ReactNode }) {
         } else {
             console.log('👤 No user, clearing reports');
             setReports([]);
+            setLoading(false);
         }
     }, [user?.id]);
 
@@ -198,7 +206,7 @@ export function ReportProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <ReportContext.Provider value={{ reports, addReport, removeReport, isProcessing, refreshReports }}>
+        <ReportContext.Provider value={{ reports, addReport, removeReport, isProcessing, loading, refreshReports }}>
             {children}
         </ReportContext.Provider>
     );

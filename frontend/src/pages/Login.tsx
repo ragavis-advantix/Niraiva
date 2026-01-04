@@ -37,14 +37,14 @@ export default function Login() {
         throw new Error('No session after login');
       }
 
-      // Fetch user role
-      const { data: profile } = await supabase
-        .from('user_profiles')
+      // Fetch user role from user_roles table
+      const { data: roleRow } = await supabase
+        .from('user_roles')
         .select('role')
         .eq('user_id', session.user.id)
-        .single();
+        .maybeSingle();
 
-      const userRole = profile?.role;
+      const userRole = roleRow?.role || 'patient';
       console.log('[Login] ✅ User role:', userRole);
 
       // Navigate based on role (Explicitly standardized)

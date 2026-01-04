@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import Navbar from '@/components/Navbar';
 import { VoiceCommand } from '@/components/VoiceCommand';
@@ -9,6 +9,7 @@ import { AbhaVerificationModal } from '@/components/AbhaVerificationModal';
 import { toast } from 'sonner';
 import { checkAbhaLinked, saveAbhaProfile } from '@/utils/healthData';
 import { useAuth } from '@/contexts/AuthContext';
+import { useReports } from '@/contexts/ReportContext';
 import { Pill, Thermometer, Heart, UploadCloud } from 'lucide-react';
 
 const calculateAge = (dob: string | null | undefined): number | null => {
@@ -37,11 +38,60 @@ const formatHeightWeight = (height: any, weight: any) => {
 };
 
 const Dashboard = () => {
-  const { userProfile, healthParameters, medications, chronicConditions, refreshUserData } = useData();
+  const { userProfile, refreshUserData } = useData();
   const { user, session } = useAuth();
+  const { reports, loading: reportsLoading } = useReports();
   const [showAbhaModal, setShowAbhaModal] = useState(false);
 
-  console.log('[Dashboard] 🎯 MOUNTED - User:', user?.email, '| Session:', !!session);
+  const derivedData = useMemo(() => {
+    if (!reports || reports.length === 0) return null;
+
+    const parameters: any[] = [];
+    const conditions: any[] = [];
+    const medications: any[] = [];
+    let profile: any = null;
+
+    reports.forEach((r) => {
+      const data = r.report_json?.data;
+      if (!data) return;
+
+      if (Array.isArray(data.parameters)) {
+        const normalizedParams = data.parameters.map((p: any, idx: number) => ({
+          ...p,
+          id: p.id || `param-${idx}-${r.id}`,
+          status: p.status || 'normal',
+          timestamp: p.timestamp || p.date || r.date || new Date().toISOString()
+        }));
+        parameters.push(...normalizedParams);
+      }
+
+      if (Array.isArray(data.conditions)) {
+        conditions.push(...data.conditions);
+      }
+
+      if (Array.isArray(data.medications)) {
+        medications.push(...data.medications);
+      }
+
+      if (!profile && data.profile) {
+        profile = data.profile;
+      }
+    });
+
+    return {
+      profile,
+      parameters,
+      conditions,
+      medications
+    };
+  }, [reports]);
+
+  const displayName = derivedData?.profile?.name ||
+    [userProfile?.first_name, userProfile?.middle_name, userProfile?.last_name].filter(Boolean).join(' ') ||
+    user?.email?.split('@')[0] ||
+    'User';
+
+  console.log('[Dashboard] 🎯 MOUNTED - User:', user?.email, '| Session:', !!session, '| Reports:', reports?.length, '| Loading:', reportsLoading);
 
   const handleLinkABHA = () => {
     setShowAbhaModal(true);
@@ -63,6 +113,15 @@ const Dashboard = () => {
 
     checkAbhaStatus();
   }, [user?.id]);
+
+  if (reportsLoading) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex flex-col items-center justify-center">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="mt-4 text-gray-500 font-medium">Loading your health dashboard...</p>
+      </div>
+    );
+  }
 
   // FHIR patient fetching removed — no longer used in dashboard
 
@@ -106,11 +165,11 @@ const Dashboard = () => {
 
               {/* Left: Avatar + basic info (compact) */}
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center text-2xl font-semibold text-gray-700">{(userProfile?.first_name || 'U').charAt(0)}</div>
+                <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center text-2xl font-semibold text-gray-700">{displayName.charAt(0)}</div>
 
                 <div className="space-y-1">
-                  <h2 className="text-xl font-semibold text-light-text dark:text-dark-text">{[userProfile?.first_name, userProfile?.middle_name, userProfile?.last_name].filter(Boolean).join(' ') || 'Unnamed'}</h2>
-                  <p className="text-sm text-light-subtext dark:text-dark-subtext">{calculateAge(userProfile?.dob) ? `${calculateAge(userProfile?.dob)} years` : ''} {userProfile?.gender ? `• ${userProfile?.gender}` : ''}</p>
+                  <h2 className="text-xl font-semibold text-light-text dark:text-dark-text">{displayName}</h2>
+                  <p className="text-sm text-light-subtext dark:text-dark-subtext">{calculateAge(derivedData?.profile?.dob || userProfile?.dob) ? `${calculateAge(derivedData?.profile?.dob || userProfile?.dob)} years` : ''} {(derivedData?.profile?.gender || userProfile?.gender) ? `• ${derivedData?.profile?.gender || userProfile?.gender}` : ''}</p>
 
                   {/* Allergy badges with proper medical styling */}
                   <div className="flex flex-wrap gap-2 mt-1">
@@ -155,7 +214,7 @@ const Dashboard = () => {
                 {/* BMI */}
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">BMI</div>
-                  <div className="font-medium text-light-text dark:text-dark-text">{userProfile?.health_metrics?.bmi ?? userProfile?.bmi ?? '-'}</div>
+                  <div className="font-medium text-light-text dark:text-dark-text">{derivedData?.profile?.bmi ?? userProfile?.health_metrics?.bmi ?? userProfile?.bmi ?? '-'}</div>
                 </div>
               </div>
 
@@ -163,15 +222,15 @@ const Dashboard = () => {
           </motion.div>
 
           {/* Current Medications */}
-          {medications?.length > 0 && (
+          {derivedData?.medications && derivedData.medications.length > 0 && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }} className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-gray-100 dark:border-dark-cardBorder p-4 md:p-6 mb-5 transition-colors duration-300">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-light-text dark:text-dark-text">Current Medications</h2>
-                <div className="flex items-center gap-2 text-sm text-light-subtext dark:text-dark-subtext"><Pill className="w-4 h-4 text-blue-500 dark:text-blue-400" /> {medications.length} items</div>
+                <div className="flex items-center gap-2 text-sm text-light-subtext dark:text-dark-subtext"><Pill className="w-4 h-4 text-blue-500 dark:text-blue-400" /> {derivedData.medications.length} items</div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {medications.map((med: any, index: number) => (
+                {derivedData.medications.map((med: any, index: number) => (
                   <div key={index} className="flex items-center gap-3 p-2 rounded-lg border border-gray-100 dark:border-dark-cardBorder bg-white dark:bg-dark-card">
                     <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-md">
                       <Pill className="w-5 h-5 text-blue-600 dark:text-blue-400" />
@@ -197,11 +256,17 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {healthParameters.map((param) => (
-                <div key={param.id} className="flex flex-col justify-between h-40">
-                  <HealthCard parameter={param} />
+              {derivedData?.parameters && derivedData.parameters.length > 0 ? (
+                derivedData.parameters.map((param, idx) => (
+                  <div key={param.id || idx} className="flex flex-col justify-between h-40">
+                    <HealthCard parameter={param} />
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-full py-8 text-center bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+                  <p className="text-light-subtext dark:text-dark-subtext">No health parameters recorded.</p>
                 </div>
-              ))}
+              )}
             </div>
           </motion.div>
 
@@ -210,8 +275,8 @@ const Dashboard = () => {
             <h2 className="text-xl font-semibold mb-4 text-light-text dark:text-dark-text">Chronic Conditions</h2>
             <div className="max-w-md">
               <div className="space-y-4">
-                {chronicConditions && chronicConditions.length > 0 ? (
-                  chronicConditions.map((cond: any) => {
+                {derivedData?.conditions && derivedData.conditions.length > 0 ? (
+                  derivedData.conditions.map((cond: any, idx: number) => {
                     const severity = cond.severity as string | undefined;
                     const badgeLabel = severity || cond.currentStatus || 'unknown';
                     const badgeClass = severity === 'severe'
@@ -225,7 +290,7 @@ const Dashboard = () => {
                     const statusLabel = cond.currentStatus || cond.status || null;
 
                     return (
-                      <div key={cond.id || cond.name} className="glass-card p-4 md:p-5">
+                      <div key={cond.id || cond.name || idx} className="glass-card p-4 md:p-5">
                         <div className="flex justify-between items-start mb-2">
                           <h3 className="text-lg font-medium text-gray-900 dark:text-white">{cond.name}</h3>
                           <span className={`px-2 py-0.5 rounded-full text-sm ${badgeClass}`}>
