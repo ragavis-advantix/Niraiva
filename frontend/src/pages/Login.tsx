@@ -48,21 +48,15 @@ export default function Login() {
       console.log('[Login] ✅ User role:', userRole);
 
       // Navigate based on role (Explicitly standardized)
-      if (userRole === 'patient') {
-        console.log('[Login] 🔄 Navigating to: /patient/dashboard');
-        navigate('/patient/dashboard', { replace: true });
-        return;
-      }
-
       if (userRole === 'doctor') {
         console.log('[Login] 🔄 Navigating to: /doctor/dashboard');
         navigate('/doctor/dashboard', { replace: true });
         return;
       }
 
-      // Fallback
-      console.log('[Login] 🔄 Fallback to landing page');
-      navigate('/', { replace: true });
+      // DEFAULT: patient
+      console.log('[Login] 🔄 Navigating to: /patient/dashboard (default)');
+      navigate('/patient/dashboard', { replace: true });
     } catch (error: any) {
       console.error('[Login] ❌ Error:', error);
       setLoading(false);

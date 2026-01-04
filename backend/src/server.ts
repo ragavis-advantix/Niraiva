@@ -36,7 +36,7 @@ app.use(
             // allow requests with no origin (like mobile apps or curl requests)
             if (!origin) return callback(null, true);
 
-            if (allowedOrigins.indexOf(origin) !== -1) {
+            if (allowedOrigins.indexOf(origin) !== -1 || origin.endsWith(".netlify.app")) {
                 callback(null, true);
             } else {
                 console.warn(`🚨 CORS blocked for origin: ${origin}`);

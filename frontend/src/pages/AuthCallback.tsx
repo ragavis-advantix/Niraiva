@@ -30,12 +30,29 @@ export default function AuthCallback() {
                     .from("user_profiles")
                     .select("role")
                     .eq("user_id", user.id)
-                    .single();
+                    .maybeSingle();
 
                 if (profileError) {
                     console.error('[AuthCallback] ⚠️ Profile fetch error:', profileError);
-                    // Default to patient dashboard if role fetch fails
-                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (fallback)');
+                }
+
+                // Auto-create profile if missing (safe fallback for Google OAuth)
+                if (!profile) {
+                    console.log('[AuthCallback] ✏️ Profile not found, creating default patient profile');
+                    await supabase.from("user_profiles").insert({
+                        user_id: user.id,
+                        email: user.email,
+                        role: 'patient',
+                        created_at: new Date().toISOString(),
+                    });
+
+                    // Also ensure they have a role entry
+                    await supabase.from("user_roles").insert({
+                        user_id: user.id,
+                        role: 'patient',
+                    });
+
+                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (new user)');
                     navigate("/patient/dashboard", { replace: true });
                     return;
                 }
@@ -43,15 +60,13 @@ export default function AuthCallback() {
                 const userRole = profile?.role;
                 console.log('[AuthCallback] ✅ User role:', userRole);
 
-                if (userRole === "patient") {
-                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (patient)');
-                    navigate("/patient/dashboard", { replace: true });
-                } else if (userRole === "doctor") {
+                if (userRole === "doctor") {
                     console.log('[AuthCallback] 🔄 REDIRECT: /doctor/dashboard (doctor)');
                     navigate("/doctor/dashboard", { replace: true });
                 } else {
-                    console.log('[AuthCallback] ⚠️ Unknown role, redirecting to landing page');
-                    navigate("/", { replace: true });
+                    // Default to patient dashboard for 'patient' or any other role
+                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (default)');
+                    navigate("/patient/dashboard", { replace: true });
                 }
             } catch (err) {
                 console.error('[AuthCallback] ❌ Exception:', err);
