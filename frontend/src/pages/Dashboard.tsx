@@ -52,8 +52,27 @@ const PRIMARY_VITALS = [
   'fasting blood sugar'
 ];
 
-const normalizeParamName = (name: string) =>
-  name.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+const PRIMARY_CHRONIC_CONDITIONS = [
+  'hypertension',
+  'essential primary hypertension',
+  'diabetes',
+  'type 2 diabetes mellitus',
+  'type 1 diabetes mellitus',
+  'chronic kidney disease',
+  'ckd',
+  'coronary artery disease',
+  'ischemic heart disease',
+  'angina pectoris',
+  'asthma',
+  'copd',
+  'hypothyroidism',
+  'hyperthyroidism',
+  'dyslipidemia',
+  'hyperlipidemia'
+];
+
+const normalizeClinicalName = (value: string) =>
+  value.toLowerCase().replace(/[^a-z\s]/g, '').trim();
 
 const Dashboard = () => {
   const { userProfile, refreshUserData } = useData();
@@ -98,14 +117,18 @@ const Dashboard = () => {
 
         // Filter for PRIMARY VITALS
         const primaryParams = normalizedParams.filter(p =>
-          PRIMARY_VITALS.includes(normalizeParamName(p.name))
+          PRIMARY_VITALS.includes(normalizeClinicalName(p.name))
         );
 
         parameters.push(...primaryParams);
       }
 
       if (Array.isArray(data.conditions)) {
-        conditions.push(...data.conditions);
+        // Filter for PRIMARY CHRONIC CONDITIONS
+        const chronicOnly = data.conditions.filter((c: any) =>
+          PRIMARY_CHRONIC_CONDITIONS.includes(normalizeClinicalName(c.name))
+        );
+        conditions.push(...chronicOnly);
       }
 
       if (Array.isArray(data.medications)) {
@@ -114,20 +137,33 @@ const Dashboard = () => {
     });
 
     // Deduplicate parameters by name (keeping the newest one)
-    // parameters are already in order of reports (newest first)
     const uniqueParametersMap = new Map<string, any>();
     parameters.forEach(p => {
-      const key = normalizeParamName(p.name);
+      const key = normalizeClinicalName(p.name);
       if (!uniqueParametersMap.has(key)) {
         uniqueParametersMap.set(key, p);
       }
     });
     const uniqueParameters = Array.from(uniqueParametersMap.values());
 
+    // Deduplicate conditions by name (keeping the newest one)
+    const uniqueConditionsMap = new Map<string, any>();
+    conditions.forEach(cond => {
+      const key = normalizeClinicalName(cond.name);
+      if (!uniqueConditionsMap.has(key)) {
+        uniqueConditionsMap.set(key, {
+          ...cond,
+          currentStatus: cond.currentStatus || cond.status || 'N/A',
+          diagnosedDate: cond.diagnosedDate || null
+        });
+      }
+    });
+    const uniqueConditions = Array.from(uniqueConditionsMap.values());
+
     return {
       profile,
       parameters: uniqueParameters,
-      conditions,
+      conditions: uniqueConditions,
       medications
     };
   }, [reports]);
