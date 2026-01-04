@@ -37,6 +37,24 @@ const formatHeightWeight = (height: any, weight: any) => {
   return '-';
 };
 
+const PRIMARY_VITALS = [
+  'systolic blood pressure',
+  'diastolic blood pressure',
+  'heart rate',
+  'pulse rate',
+  'oxygen saturation',
+  'spo2',
+  'respiratory rate',
+  'temperature',
+  'body temperature',
+  'blood glucose',
+  'random blood sugar',
+  'fasting blood sugar'
+];
+
+const normalizeParamName = (name: string) =>
+  name.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+
 const Dashboard = () => {
   const { userProfile, refreshUserData } = useData();
   const { user, session } = useAuth();
@@ -77,7 +95,13 @@ const Dashboard = () => {
           status: p.status || 'normal',
           timestamp: p.timestamp || p.date || r.date || new Date().toISOString()
         }));
-        parameters.push(...normalizedParams);
+
+        // Filter for PRIMARY VITALS
+        const primaryParams = normalizedParams.filter(p =>
+          PRIMARY_VITALS.includes(normalizeParamName(p.name))
+        );
+
+        parameters.push(...primaryParams);
       }
 
       if (Array.isArray(data.conditions)) {
@@ -89,9 +113,20 @@ const Dashboard = () => {
       }
     });
 
+    // Deduplicate parameters by name (keeping the newest one)
+    // parameters are already in order of reports (newest first)
+    const uniqueParametersMap = new Map<string, any>();
+    parameters.forEach(p => {
+      const key = normalizeParamName(p.name);
+      if (!uniqueParametersMap.has(key)) {
+        uniqueParametersMap.set(key, p);
+      }
+    });
+    const uniqueParameters = Array.from(uniqueParametersMap.values());
+
     return {
       profile,
-      parameters,
+      parameters: uniqueParameters,
       conditions,
       medications
     };
@@ -286,7 +321,10 @@ const Dashboard = () => {
           {/* Health Parameters Section */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }} className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-gray-100 dark:border-dark-cardBorder p-4 md:p-6 mb-5 transition-colors duration-300">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-light-text dark:text-dark-text">Health Parameters</h2>
+              <div>
+                <h2 className="text-xl font-semibold text-light-text dark:text-dark-text">Main Health Vitals</h2>
+                <p className="text-sm text-gray-500 mt-0.5">Daily vitals tracked for your health monitoring</p>
+              </div>
               <div className="flex items-center gap-3 text-sm text-light-subtext dark:text-dark-subtext">
                 <Thermometer className="w-4 h-4 text-red-400 dark:text-red-300" />
                 <Heart className="w-4 h-4 text-pink-400 dark:text-pink-300" />
