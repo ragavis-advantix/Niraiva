@@ -87,10 +87,7 @@ export default function DoctorLogin() {
 
     const handleGoogleSignIn = async () => {
         try {
-            // Store intended destination for OAuth callback
-            console.log('[DoctorLogin] 🔑 Google Sign-In: Storing intended destination');
-            localStorage.setItem('oauth_redirect_destination', '/doctor/dashboard');
-            localStorage.setItem('oauth_login_type', 'doctor');
+            console.log('[DoctorLogin] 🔑 Google Sign-In: Starting OAuth flow');
 
             const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',

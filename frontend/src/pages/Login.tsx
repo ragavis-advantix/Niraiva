@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,14 +35,31 @@ export default function Login() {
       await signIn(email, password);
       console.log('[Login] ✅ signIn() completed');
 
-      console.log('[Login] ↳ Waiting for state to settle...');
-      // Wait a moment for Supabase session to be fully committed
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Get the current session to access user ID
+      const { data: { session } } = await supabase.auth.getSession();
 
-      console.log('[Login] ↳ Navigating to:', from);
-      console.log('[Login] 🔄 Calling navigate()...');
-      navigate(from, { replace: true });
-      console.log('[Login] ↳ navigate() called (page should change)');
+      if (!session?.user) {
+        throw new Error('No session after login');
+      }
+
+      // Fetch user role
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .single();
+
+      const userRole = profile?.role;
+      console.log('[Login] ✅ User role:', userRole);
+
+      // Navigate based on role
+      if (userRole === 'patient') {
+        console.log('[Login] 🔄 Navigating to: /dashboard');
+        navigate('/dashboard', { replace: true });
+      } else {
+        console.log('[Login] 🔄 Navigating to:', from);
+        navigate(from, { replace: true });
+      }
     } catch (error: any) {
       console.error('[Login] ❌ Error:', error);
       setLoading(false);
@@ -55,11 +73,7 @@ export default function Login() {
 
   const handleGoogleSignIn = async () => {
     try {
-      // Store intended destination for OAuth callback
-      console.log('[Login] 🔑 Google Sign-In: Storing intended destination');
-      localStorage.setItem('oauth_redirect_destination', '/dashboard');
-      localStorage.setItem('oauth_login_type', 'patient');
-
+      console.log('[Login] 🔑 Google Sign-In: Starting OAuth flow');
       await signInWithGoogle();
     } catch (error: any) {
       toast({
