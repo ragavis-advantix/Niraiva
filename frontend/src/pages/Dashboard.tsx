@@ -51,6 +51,21 @@ const Dashboard = () => {
     const medications: any[] = [];
     let profile: any = null;
 
+    // Use latest profile found (reports are sorted newest first)
+    for (const r of reports) {
+      if (r.report_json?.data?.profile) {
+        profile = { ...r.report_json.data.profile };
+
+        // AUTO-CALCULATE BMI if missing
+        if (!profile.bmi && profile.height?.value && profile.weight?.value) {
+          const heightM = profile.height.value / 100;
+          profile.bmi = Number((profile.weight.value / (heightM * heightM)).toFixed(1));
+        }
+        break; // Stop at newest valid profile
+      }
+    }
+
+    // Aggregated data from all reports
     reports.forEach((r) => {
       const data = r.report_json?.data;
       if (!data) return;
@@ -72,16 +87,6 @@ const Dashboard = () => {
       if (Array.isArray(data.medications)) {
         medications.push(...data.medications);
       }
-
-      if (!profile && data.profile) {
-        profile = { ...data.profile };
-
-        // AUTO-CALCULATE BMI if missing
-        if (!profile.bmi && profile.height?.value && profile.weight?.value) {
-          const heightM = profile.height.value / 100;
-          profile.bmi = Number((profile.weight.value / (heightM * heightM)).toFixed(1));
-        }
-      }
     });
 
     return {
@@ -92,10 +97,28 @@ const Dashboard = () => {
     };
   }, [reports]);
 
+  const headerMetrics = useMemo(() => {
+    if (!derivedData?.profile) return null;
+
+    const h = derivedData.profile.height?.value;
+    const w = derivedData.profile.weight?.value;
+
+    return {
+      age: derivedData.profile.age ?? null,
+      bloodType: derivedData.profile.bloodType ?? null,
+      heightWeight: h && w ? `${h} cm / ${w} kg` : null,
+      bmi: derivedData.profile.bmi ?? null
+    };
+  }, [derivedData]);
+
   const displayName = derivedData?.profile?.name ||
     [userProfile?.first_name, userProfile?.middle_name, userProfile?.last_name].filter(Boolean).join(' ') ||
     user?.email?.split('@')[0] ||
     'User';
+
+  const displayAge = derivedData?.profile?.age ??
+    calculateAge(userProfile?.dob) ??
+    null;
 
   console.log('[Dashboard] 🎯 MOUNTED - User:', user?.email, '| Session:', !!session, '| Reports:', reports?.length, '| Loading:', reportsLoading);
 
@@ -175,7 +198,9 @@ const Dashboard = () => {
 
                 <div className="space-y-1">
                   <h2 className="text-xl font-semibold text-light-text dark:text-dark-text">{displayName}</h2>
-                  <p className="text-sm text-light-subtext dark:text-dark-subtext">{calculateAge(derivedData?.profile?.dob || userProfile?.dob) ? `${calculateAge(derivedData?.profile?.dob || userProfile?.dob)} years` : ''} {(derivedData?.profile?.gender || userProfile?.gender) ? `• ${derivedData?.profile?.gender || userProfile?.gender}` : ''}</p>
+                  <p className="text-sm text-light-subtext dark:text-dark-subtext">
+                    {displayAge ? `${displayAge} years` : ''} {(derivedData?.profile?.gender || userProfile?.gender) ? `• ${derivedData?.profile?.gender || userProfile?.gender}` : ''}
+                  </p>
 
                   {/* Allergy badges with proper medical styling */}
                   <div className="flex flex-wrap gap-2 mt-1">
@@ -201,9 +226,7 @@ const Dashboard = () => {
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">Height & Weight</div>
                   <div className="font-medium text-light-text dark:text-dark-text">
-                    {derivedData?.profile?.height?.value && derivedData?.profile?.weight?.value
-                      ? `${derivedData.profile.height.value} cm / ${derivedData.profile.weight.value} kg`
-                      : formatHeightWeight(userProfile?.height, userProfile?.weight)}
+                    {headerMetrics?.heightWeight ?? '-'}
                   </div>
                 </div>
 
@@ -211,7 +234,7 @@ const Dashboard = () => {
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">Blood Type</div>
                   <div className="font-medium text-light-text dark:text-dark-text">
-                    {derivedData?.profile?.bloodType || userProfile?.blood_type || '-'}
+                    {headerMetrics?.bloodType ?? '-'}
                   </div>
                 </div>
 
@@ -219,16 +242,16 @@ const Dashboard = () => {
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">Age</div>
                   <div className="font-medium text-light-text dark:text-dark-text">
-                    {(derivedData?.profile?.age || userProfile?.age)
-                      ? `${derivedData?.profile?.age || userProfile.age} yrs`
-                      : '-'}
+                    {headerMetrics?.age ? `${headerMetrics.age} yrs` : '-'}
                   </div>
                 </div>
 
                 {/* BMI */}
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">BMI</div>
-                  <div className="font-medium text-light-text dark:text-dark-text">{derivedData?.profile?.bmi ?? userProfile?.health_metrics?.bmi ?? userProfile?.bmi ?? '-'}</div>
+                  <div className="font-medium text-light-text dark:text-dark-text">
+                    {headerMetrics?.bmi ?? '-'}
+                  </div>
                 </div>
               </div>
 
