@@ -1,1 +1,6 @@
+# SPA Routing for Netlify
+# Redirect all requests to index.html for clientside routing
 /*    /index.html   200
+
+# Legacy dashboard redirect for backward compatibility
+/dashboard    /patient/dashboard    301

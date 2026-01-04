@@ -3,7 +3,7 @@ import axios from "axios";
 import { getSupabaseAdminClient } from "../../lib/supabaseClient";
 
 const router = Router();
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://niraiva-app.vercel.app";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://niriava.netlify.app";
 
 router.get("/", async (req, res) => {
     const { code, state } = req.query;
