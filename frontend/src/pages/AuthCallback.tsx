@@ -11,6 +11,8 @@ export default function AuthCallback() {
             console.log('[AuthCallback] ↳ URL:', window.location.href);
 
             try {
+                // Wait for session to stabilize
+                await new Promise(res => setTimeout(res, 300));
                 const { data, error } = await supabase.auth.getSession();
 
                 if (error || !data.session) {
@@ -33,8 +35,8 @@ export default function AuthCallback() {
                 if (profileError) {
                     console.error('[AuthCallback] ⚠️ Profile fetch error:', profileError);
                     // Default to patient dashboard if role fetch fails
-                    console.log('[AuthCallback] 🔄 REDIRECT: /dashboard (fallback)');
-                    navigate("/dashboard", { replace: true });
+                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (fallback)');
+                    navigate("/patient/dashboard", { replace: true });
                     return;
                 }
 
@@ -42,8 +44,8 @@ export default function AuthCallback() {
                 console.log('[AuthCallback] ✅ User role:', userRole);
 
                 if (userRole === "patient") {
-                    console.log('[AuthCallback] 🔄 REDIRECT: /dashboard (patient)');
-                    navigate("/dashboard", { replace: true });
+                    console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard (patient)');
+                    navigate("/patient/dashboard", { replace: true });
                 } else if (userRole === "doctor") {
                     console.log('[AuthCallback] 🔄 REDIRECT: /doctor/dashboard (doctor)');
                     navigate("/doctor/dashboard", { replace: true });

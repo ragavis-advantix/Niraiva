@@ -12,7 +12,7 @@ export default function ProfileButton() {
 
     return (
         <div className="ml-4 flex items-center">
-            <Link to="/profile" title="View profile" className="flex items-center gap-3">
+            <Link to="/patient/profile" title="View profile" className="flex items-center gap-3">
                 <div className="h-9 w-9 rounded-full bg-niraiva-100 text-niraiva-700 flex items-center justify-center font-semibold">{initial}</div>
                 <span className="hidden sm:inline text-sm text-gray-700 dark:text-gray-200">{displayName}</span>
             </Link>

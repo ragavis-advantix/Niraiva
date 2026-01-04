@@ -60,7 +60,7 @@ export default function HealthReportUpload() {
                 description: 'Your Google account has been linked',
             });
             checkGoogleStatus();
-            window.history.replaceState({}, '', '/upload-reports');
+            window.history.replaceState({}, '', '/patient/upload-reports');
         }
     }, []);
 

@@ -205,7 +205,7 @@ export default function Profile() {
                             <p className="text-gray-500">No ABHA ID linked.</p>
                             <button
                                 className="mt-3 px-4 py-2 bg-blue-500 text-white rounded-lg"
-                                onClick={() => navigate('/dashboard?openAbhaPopup=true')}
+                                onClick={() => navigate('/patient/dashboard?openAbhaPopup=true')}
                             >
                                 Create ABHA ID
                             </button>
@@ -259,13 +259,13 @@ export default function Profile() {
             <div className="h-px bg-gray-200 w-full mt-10 mb-4"></div>
 
             <div className="mt-6 text-center">
-                <button className="px-6 py-2 bg-teal-500 text-white rounded-xl shadow" onClick={() => navigate('/edit-profile')}>Edit Profile</button>
+                <button className="px-6 py-2 bg-teal-500 text-white rounded-xl shadow" onClick={() => toast.info('Edit Profile feature is coming soon!')}>Edit Profile</button>
             </div>
 
             <div className="mt-3 flex flex-col items-center gap-3">
                 <button
                     className="px-6 py-2 bg-blue-500 text-white rounded-xl shadow"
-                    onClick={() => navigate('/dashboard')}
+                    onClick={() => navigate('/patient/dashboard')}
                 >
                     Go to Dashboard
                 </button>

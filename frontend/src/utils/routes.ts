@@ -8,94 +8,94 @@ export interface RouteDefinition {
 export const routes: RouteDefinition[] = [
 
   {
-    path: '/dashboard',
+    path: '/patient/dashboard',
     aliases: ['dashboard', 'home', 'main', 'go to dashboard', 'show dashboard', 'take me to dashboard']
   },
   {
-    path: '/dashboard',
+    path: '/patient/dashboard',
     aliases: ['health parameters', 'key health', 'show health parameters', 'view health parameters'],
     section: 'parameters'
   },
   {
-    path: '/dashboard',
+    path: '/patient/dashboard',
     aliases: ['chronic conditions', 'show conditions', 'view conditions', 'medical conditions'],
     section: 'conditions'
   },
   {
-    path: '/dashboard',
+    path: '/patient/dashboard',
     aliases: ['profile information', 'show profile', 'view profile', 'my profile'],
     section: 'profile'
   },
   {
-    path: '/dashboard',
+    path: '/patient/dashboard',
     aliases: ['medications', 'current medications', 'show medications', 'view medications'],
     section: 'medications'
   },
   {
-    path: '/timeline',
+    path: '/patient/timeline',
     aliases: ['timeline', 'history', 'go to timeline', 'show timeline', 'show history', 'view timeline']
   },
   {
-    path: '/timeline',
+    path: '/patient/timeline',
     aliases: ['show tests', 'filter tests', 'view tests', 'show test results'],
     action: 'filter',
     section: 'test'
   },
   {
-    path: '/timeline',
+    path: '/patient/timeline',
     aliases: ['show treatments', 'filter treatments', 'view treatments'],
     action: 'filter',
     section: 'treatment'
   },
   {
-    path: '/timeline',
+    path: '/patient/timeline',
     aliases: ['show medications', 'filter medications', 'view medications', 'show medicine'],
     action: 'filter',
     section: 'medication'
   },
   {
-    path: '/timeline',
+    path: '/patient/timeline',
     aliases: ['show appointments', 'filter appointments', 'view appointments'],
     action: 'filter',
     section: 'appointment'
   },
   {
-    path: '/timeline',
+    path: '/patient/timeline',
     aliases: ['show diagnoses', 'filter diagnoses', 'view diagnoses', 'show diagnosis'],
     action: 'filter',
     section: 'diagnosis'
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     aliases: ['diagnostic', 'diagnosis', 'go to diagnostic', 'show diagnostic', 'medical diagnostic', 'view diagnostic']
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     aliases: ['show pathway', 'view pathway', 'condition pathway', 'diagnostic pathway'],
     section: 'pathway'
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     aliases: ['diabetes', 'type 2 diabetes', 'show diabetes', 'view diabetes'],
     section: 'condition-cond-001'
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     aliases: ['hypertension', 'blood pressure', 'show hypertension', 'view hypertension'],
     section: 'condition-cond-002'
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     aliases: ['hyperlipidemia', 'cholesterol', 'show hyperlipidemia', 'view hyperlipidemia'],
     section: 'condition-cond-003'
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     aliases: ['treatment', 'current treatment', 'show treatment', 'view treatment'],
     section: 'treatment'
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     aliases: ['clinical notes', 'show notes', 'view notes', 'medical notes'],
     section: 'clinical-notes'
   },
@@ -121,9 +121,9 @@ export interface RouteResult {
 
 export function findRouteByCommand(command: string): RouteResult | null {
   const normalizedCommand = command.toLowerCase().trim();
-  
+
   for (const route of routes) {
-    if (route.aliases.some(alias => 
+    if (route.aliases.some(alias =>
       normalizedCommand.includes(alias.toLowerCase()) ||
       normalizedCommand === alias.toLowerCase()
     )) {
@@ -134,6 +134,6 @@ export function findRouteByCommand(command: string): RouteResult | null {
       };
     }
   }
-  
+
   return null;
 }

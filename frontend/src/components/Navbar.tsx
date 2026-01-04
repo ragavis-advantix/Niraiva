@@ -16,22 +16,22 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    path: '/dashboard',
+    path: '/patient/dashboard',
     label: 'Dashboard',
     icon: <Home className="h-5 w-5" />,
   },
   {
-    path: '/timeline',
+    path: '/patient/timeline',
     label: 'Timeline',
     icon: <Clock className="h-5 w-5" />,
   },
   {
-    path: '/diagnostic',
+    path: '/patient/diagnostic',
     label: 'Diagnostic',
     icon: <Map className="h-5 w-5" />,
   },
   {
-    path: '/upload-reports',
+    path: '/patient/upload-reports',
     label: 'Upload Reports',
     icon: <Upload className="h-5 w-5" />,
   },

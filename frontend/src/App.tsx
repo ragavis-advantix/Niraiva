@@ -115,6 +115,12 @@ const AppRoutes = () => {
   return (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
+        {/* Backward compatibility redirect */}
+        <Route
+          path="/dashboard"
+          element={<Navigate to="/patient/dashboard" replace />}
+        />
+
         {/* Public routes */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
@@ -148,9 +154,9 @@ const AppRoutes = () => {
           }
         />
 
-        {/* Protected routes */}
+        {/* Patient routes (Standardized) */}
         <Route
-          path="/dashboard"
+          path="/patient/dashboard"
           element={
             <ProtectedRoute>
               <Dashboard />
@@ -158,7 +164,7 @@ const AppRoutes = () => {
           }
         />
         <Route
-          path="/timeline"
+          path="/patient/timeline"
           element={
             <ProtectedRoute>
               <Timeline />
@@ -166,7 +172,7 @@ const AppRoutes = () => {
           }
         />
         <Route
-          path="/diagnostic"
+          path="/patient/diagnostic"
           element={
             <ProtectedRoute>
               <Diagnostic />
@@ -174,7 +180,7 @@ const AppRoutes = () => {
           }
         />
         <Route
-          path="/profile"
+          path="/patient/profile"
           element={
             <ProtectedRoute>
               <Profile />
@@ -182,7 +188,7 @@ const AppRoutes = () => {
           }
         />
         <Route
-          path="/upload-reports"
+          path="/patient/upload-reports"
           element={
             <ProtectedRoute>
               <HealthReportUpload />

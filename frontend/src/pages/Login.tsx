@@ -20,11 +20,6 @@ export default function Login() {
   const location = useLocation();
   const { toast } = useToast();
 
-  // precise fix: never allow redirect to landing page ('/')
-  const locationState = location.state as any;
-  const rawFrom = locationState?.from?.pathname;
-  const from = (rawFrom && rawFrom !== '/') ? rawFrom : '/dashboard';
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -52,14 +47,22 @@ export default function Login() {
       const userRole = profile?.role;
       console.log('[Login] ✅ User role:', userRole);
 
-      // Navigate based on role
+      // Navigate based on role (Explicitly standardized)
       if (userRole === 'patient') {
-        console.log('[Login] 🔄 Navigating to: /dashboard');
-        navigate('/dashboard', { replace: true });
-      } else {
-        console.log('[Login] 🔄 Navigating to:', from);
-        navigate(from, { replace: true });
+        console.log('[Login] 🔄 Navigating to: /patient/dashboard');
+        navigate('/patient/dashboard', { replace: true });
+        return;
       }
+
+      if (userRole === 'doctor') {
+        console.log('[Login] 🔄 Navigating to: /doctor/dashboard');
+        navigate('/doctor/dashboard', { replace: true });
+        return;
+      }
+
+      // Fallback
+      console.log('[Login] 🔄 Fallback to landing page');
+      navigate('/', { replace: true });
     } catch (error: any) {
       console.error('[Login] ❌ Error:', error);
       setLoading(false);
