@@ -1,5 +1,11 @@
 {
-    "cleanUrls": true,
+    "redirects": [
+        {
+            "source": "/dashboard",
+            "destination": "/patient/dashboard",
+            "permanent": true
+        }
+    ],
     "rewrites": [
         {
             "source": "/(.*)",
