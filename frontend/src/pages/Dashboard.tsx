@@ -74,7 +74,13 @@ const Dashboard = () => {
       }
 
       if (!profile && data.profile) {
-        profile = data.profile;
+        profile = { ...data.profile };
+
+        // AUTO-CALCULATE BMI if missing
+        if (!profile.bmi && profile.height?.value && profile.weight?.value) {
+          const heightM = profile.height.value / 100;
+          profile.bmi = Number((profile.weight.value / (heightM * heightM)).toFixed(1));
+        }
       }
     });
 
@@ -194,20 +200,28 @@ const Dashboard = () => {
                 {/* Height & Weight */}
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">Height & Weight</div>
-                  <div className="font-medium text-light-text dark:text-dark-text">{formatHeightWeight(userProfile?.height, userProfile?.weight)}</div>
+                  <div className="font-medium text-light-text dark:text-dark-text">
+                    {derivedData?.profile?.height?.value && derivedData?.profile?.weight?.value
+                      ? `${derivedData.profile.height.value} cm / ${derivedData.profile.weight.value} kg`
+                      : formatHeightWeight(userProfile?.height, userProfile?.weight)}
+                  </div>
                 </div>
 
                 {/* Blood Type */}
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">Blood Type</div>
-                  <div className="font-medium text-light-text dark:text-dark-text">{userProfile?.blood_type || '-'}</div>
+                  <div className="font-medium text-light-text dark:text-dark-text">
+                    {derivedData?.profile?.bloodType || userProfile?.blood_type || '-'}
+                  </div>
                 </div>
 
                 {/* Age */}
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="text-light-subtext dark:text-dark-subtext text-xs mb-1">Age</div>
                   <div className="font-medium text-light-text dark:text-dark-text">
-                    {userProfile?.age ? `${userProfile.age} yrs` : '-'}
+                    {(derivedData?.profile?.age || userProfile?.age)
+                      ? `${derivedData?.profile?.age || userProfile.age} yrs`
+                      : '-'}
                   </div>
                 </div>
 
