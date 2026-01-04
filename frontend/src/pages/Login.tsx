@@ -55,6 +55,11 @@ export default function Login() {
 
   const handleGoogleSignIn = async () => {
     try {
+      // Store intended destination for OAuth callback
+      console.log('[Login] 🔑 Google Sign-In: Storing intended destination');
+      localStorage.setItem('oauth_redirect_destination', '/dashboard');
+      localStorage.setItem('oauth_login_type', 'patient');
+
       await signInWithGoogle();
     } catch (error: any) {
       toast({

@@ -18,6 +18,9 @@ export default function AuthCallback() {
                 if (error) {
                     console.error('[AuthCallback] ❌ getSession error:', error);
                     console.log('[AuthCallback] 🔄 REDIRECT: /login');
+                    // Clear OAuth state on error
+                    localStorage.removeItem('oauth_redirect_destination');
+                    localStorage.removeItem('oauth_login_type');
                     navigate("/login", { replace: true });
                     return;
                 }
@@ -27,7 +30,32 @@ export default function AuthCallback() {
                 console.log('[AuthCallback] ↳ User:', data.session?.user?.email, '| ID:', data.session?.user?.id);
 
                 if (data.session) {
-                    console.log('[AuthCallback] 👤 User authenticated, fetching role...');
+                    console.log('[AuthCallback] 👤 User authenticated, checking stored destination...');
+
+                    // Check for stored OAuth destination
+                    const storedDestination = localStorage.getItem('oauth_redirect_destination');
+                    const storedLoginType = localStorage.getItem('oauth_login_type');
+
+                    console.log('[AuthCallback] ↳ Stored destination:', storedDestination);
+                    console.log('[AuthCallback] ↳ Stored login type:', storedLoginType);
+
+                    // Add delay to ensure session is fully established
+                    console.log('[AuthCallback] ↳ Waiting for session to stabilize...');
+                    await new Promise(resolve => setTimeout(resolve, 300));
+
+                    // If we have a stored destination, use it
+                    if (storedDestination) {
+                        console.log('[AuthCallback] ✅ Using stored destination:', storedDestination);
+                        // Clear OAuth state
+                        localStorage.removeItem('oauth_redirect_destination');
+                        localStorage.removeItem('oauth_login_type');
+                        console.log('[AuthCallback] 🔄 REDIRECT:', storedDestination);
+                        navigate(storedDestination, { replace: true });
+                        return;
+                    }
+
+                    // Fallback to role-based redirect if no stored destination
+                    console.log('[AuthCallback] ⚠️ No stored destination, falling back to role check...');
 
                     try {
                         // Simple role check for the redirect
@@ -64,11 +92,17 @@ export default function AuthCallback() {
                 } else {
                     console.log('[AuthCallback] ❌ No session found');
                     console.log('[AuthCallback] 🔄 REDIRECT: /login');
+                    // Clear OAuth state on no session
+                    localStorage.removeItem('oauth_redirect_destination');
+                    localStorage.removeItem('oauth_login_type');
                     navigate("/login", { replace: true });
                 }
             } catch (err) {
                 console.error('[AuthCallback] ❌ Exception:', err);
                 console.log('[AuthCallback] 🔄 REDIRECT: /login (exception)');
+                // Clear OAuth state on exception
+                localStorage.removeItem('oauth_redirect_destination');
+                localStorage.removeItem('oauth_login_type');
                 navigate("/login", { replace: true });
             }
         };
