@@ -9,7 +9,7 @@
 import 'dotenv/config';
 import { getSupabaseAdminClient } from '../lib/supabaseClient';
 import { OCRService } from '../services/ocrService';
-import { GeminiService } from '../services/geminiService';
+import { MultiLLMService } from '../services/MultiLLMService';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
@@ -18,12 +18,12 @@ const POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL || '5000'); // 5
 const MAX_CONCURRENT_JOBS = parseInt(process.env.WORKER_MAX_CONCURRENT || '3');
 
 let ocrService: OCRService | null = null;
-let geminiService: GeminiService | null = null;
+let multiLLMService: MultiLLMService | null = null;
 
 // Initialize services
 try {
     ocrService = new OCRService();
-    geminiService = new GeminiService();
+    multiLLMService = new MultiLLMService();
 } catch (error: any) {
     console.error('❌ Failed to initialize services:', error.message);
     console.error('Worker will continue but jobs will fail without API keys');
@@ -198,8 +198,8 @@ async function processOCRJob(job: any) {
  * Process AI parsing job - extract structured data with Gemini
  */
 async function processAIParseJob(job: any) {
-    if (!geminiService) {
-        throw new Error('Gemini service not initialized - check GEMINI_API_KEY');
+    if (!multiLLMService) {
+        throw new Error('MultiLLMService not initialized');
     }
 
     const supabase = getSupabaseAdminClient();
@@ -217,8 +217,8 @@ async function processAIParseJob(job: any) {
         throw new Error('OCR text not found - OCR job may have failed');
     }
 
-    // Parse with Gemini
-    const parsed = await geminiService.parseReport(ocrJob.metadata.ocr_text);
+    // Parse with MultiLLMService
+    const { data: parsed, provider } = await multiLLMService.parseReport(ocrJob.metadata.ocr_text);
 
     // Save to parsed_reports
     const { error: insertError } = await supabase.from('parsed_reports').insert({
@@ -229,7 +229,7 @@ async function processAIParseJob(job: any) {
         parsed_json: parsed,
         confidence: parsed.confidence,
         ai_meta: {
-            model: 'gemini-1.5-flash',
+            model: provider,
             timestamp: new Date().toISOString(),
             ocr_confidence: ocrJob.metadata.ocr_confidence,
         },
@@ -299,7 +299,7 @@ async function startWorker() {
     console.log(`   Poll interval: ${POLL_INTERVAL}ms`);
     console.log(`   Max concurrent: ${MAX_CONCURRENT_JOBS}`);
     console.log(`   OCR Service: ${ocrService ? '✅' : '❌'}`);
-    console.log(`   Gemini Service: ${geminiService ? '✅' : '❌'}`);
+    console.log(`   MultiLLM Service: ${multiLLMService ? '✅' : '❌'}`);
     console.log('');
 
     // Initial run

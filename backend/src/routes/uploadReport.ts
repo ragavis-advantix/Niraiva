@@ -2,9 +2,11 @@ import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import Tesseract from "tesseract.js";
 import { getSupabaseAdminClient, getSupabaseClient } from "../lib/supabaseClient";
+import { MultiLLMService } from "../services/MultiLLMService";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+const multiLLMService = new MultiLLMService();
 
 // Extend Express Request to include multer file and user
 declare global {
@@ -134,56 +136,101 @@ router.post(
                 });
             }
 
-            // GEMINI ANALYSIS
-            const model = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
-            const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // MULTI-LLM ANALYSIS
+            const prompt = `
+You are a medical document analyzer. Convert this text into EXACTLY one JSON following this schema:
 
-            const prompt = `\nYou are a medical document analyzer. Convert this text into EXACTLY one JSON following this schema:\n\n{\n  "type": "health_report",\n  "metadata": {\n    "documentDate": string | null,\n    "patientId": string | null,\n    "documentType": string | null,\n    "provider": string | null\n  },\n  "eventInfo": {\n    "eventType": "test" | "diagnosis" | "medication" | "treatment" | "appointment" | "vitals",\n    "eventTitle": string,\n    "eventDescription": string,\n    "status": "completed"\n  },\n  "data": {\n    "profile": {\n      "id": string | null,\n      "name": string | null,\n      "age": number | null,\n      "gender": string | null,\n      "height": { "value": number | null, "unit": string | null } | null,\n      "weight": { "value": number | null, "unit": string | null } | null,\n      "bmi": number | null,\n      "bloodType": string | null,\n      "emergencyContact": string | null,\n      "allergies": string[] | null\n    },\n    "parameters": [\n      {\n        "name": string | null,\n        "value": number | string | null,\n        "unit": string | null,\n        "status": "normal" | "warning" | "critical" | "improved" | "stable" | "worsened" | null,\n        "referenceRange": string | null,\n        "lastUpdated": string | null,\n        "trend": "improved" | "stable" | "worsened" | null\n      }\n    ],\n    "medications": [],\n    "appointments": [],\n    "conditions": [\n      {\n        "id": string | null,\n        "name": string | null,\n        "diagnosedDate": string | null,\n        "severity": "mild" | "moderate" | "severe" | null,\n        "currentStatus": "controlled" | "improving" | "worsening" | null,\n        "relatedParameters": [string]\n      }\n    ],\n    "clinicalInfo": {\n      "allergies": [],\n      "immunizations": [],\n      "lifestyle": null\n    }\n  },\n  "extractedAt": string | null,\n  "processingStatus": "success"\n}\n\nRULES FOR eventInfo:\n- If the report is a blood test → eventType = "test", eventTitle = "Blood Test"\n- If the report is a prescription → eventType = "medication", eventTitle = "Medication Updated"\n- If the report is a vital stats screenshot → eventType = "vitals", eventTitle = "Vitals Recorded"\n- If the report contains diagnosis → eventType = "diagnosis", eventTitle = "Diagnosis"\n- If the report contains recommendations for follow-up or visits → eventType = "appointment", eventTitle = "Appointment"\n- eventTitle must be clear and human-readable\n- eventDescription must summarize key extracted information (e.g., "CBC, HbA1c levels", "BP 142/93, Pulse 95")\n\nTEXT:\n${cleanedText}\n        `;
+{
+  "type": "health_report",
+  "metadata": {
+    "documentDate": string | null,
+    "patientId": string | null,
+    "documentType": string | null,
+    "provider": string | null
+  },
+  "eventInfo": {
+    "eventType": "test" | "diagnosis" | "medication" | "treatment" | "appointment" | "vitals",
+    "eventTitle": string,
+    "eventDescription": string,
+    "status": "completed"
+  },
+  "data": {
+    "profile": {
+      "id": string | null,
+      "name": string | null,
+      "age": number | null,
+      "gender": string | null,
+      "height": { "value": number | null, "unit": string | null } | null,
+      "weight": { "value": number | null, "unit": string | null } | null,
+      "bmi": number | null,
+      "bloodType": string | null,
+      "emergencyContact": string | null,
+      "allergies": string[] | null
+    },
+    "parameters": [
+      {
+        "name": string | null,
+        "value": number | string | null,
+        "unit": string | null,
+        "status": "normal" | "warning" | "critical" | "improved" | "stable" | "worsened" | null,
+        "referenceRange": string | null,
+        "lastUpdated": string | null,
+        "trend": "improved" | "stable" | "worsened" | null
+      }
+    ],
+    "medications": [],
+    "appointments": [],
+    "conditions": [
+      {
+        "id": string | null,
+        "name": string | null,
+        "diagnosedDate": string | null,
+        "severity": "mild" | "moderate" | "severe" | null,
+        "currentStatus": "controlled" | "improving" | "worsening" | null,
+        "relatedParameters": [string]
+      }
+    ],
+    "clinicalInfo": {
+      "allergies": [],
+      "immunizations": [],
+      "lifestyle": null
+    }
+  },
+  "extractedAt": string | null,
+  "processingStatus": "success"
+}
 
-            // Add an explicit short instruction to ensure medications use the desired schema
+RULES FOR eventInfo:
+- If the report is a blood test → eventType = "test", eventTitle = "Blood Test"
+- If the report is a prescription → eventType = "medication", eventTitle = "Medication Updated"
+- If the report is a vital stats screenshot → eventType = "vitals", eventTitle = "Vitals Recorded"
+- If the report contains diagnosis → eventType = "diagnosis", eventTitle = "Diagnosis"
+- If the report contains recommendations for follow-up or visits → eventType = "appointment", eventTitle = "Appointment"
+- eventTitle must be clear and human-readable
+- eventDescription must summarize key extracted information (e.g., "CBC, HbA1c levels", "BP 142/93, Pulse 95")
+
+TEXT:
+${cleanedText}
+        `;
+
             const medsSchemaNote = `\n\nNOTE: Always return a "medications" array where each item has the fields: name (string), dosage (string), frequency (string), startDate (string).`;
             const fullPrompt = prompt + medsSchemaNote;
 
-            console.log("🤖 Sending to Gemini for analysis...");
+            console.log("🤖 Starting multi-provider AI analysis...");
             let aiJSON: any = null;
             let aiStatus: 'parsed' | 'failed' = 'failed';
 
             try {
-                const aiRes = await fetch(GEMINI_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        contents: [
-                            {
-                                parts: [{ text: fullPrompt }],
-                            },
-                        ],
-                    }),
-                });
-
-                if (!aiRes.ok) {
-                    const errText = await aiRes.text();
-                    console.error("❌ Gemini API error:", aiRes.status, errText);
-                    throw new Error(`Gemini API Error ${aiRes.status}`);
-                }
-
-                const aiData: any = await aiRes.json();
-                const aiText = aiData?.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(aiData);
-
-                try {
-                    aiJSON = JSON.parse(aiText);
-                } catch (err) {
-                    const match = aiText.match(/\{[\s\S]*\}/);
-                    aiJSON = match ? JSON.parse(match[0]) : { raw: aiText };
-                }
+                const { data } = await multiLLMService.parseReport(cleanedText, fullPrompt);
+                aiJSON = data;
                 aiStatus = "parsed";
-                console.log("✅ Gemini analysis complete");
+                console.log("✅ Analysis complete using MultiLLMService");
             } catch (err: any) {
-                console.warn("⚠️ Gemini AI Parsing failed (Continuing upload):", err.message);
+                console.warn("⚠️ All AI Providers failed (Continuing upload):", err.message);
                 aiStatus = "failed";
                 aiJSON = {
                     type: "health_report",
-                    error: "AI Parsing failed or quota exceeded",
+                    error: "All AI providers failed or quota exceeded",
                     processingStatus: "failure",
                     eventInfo: {
                         eventTitle: "Manual Report Upload",
