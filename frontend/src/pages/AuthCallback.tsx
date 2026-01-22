@@ -64,6 +64,26 @@ export default function AuthCallback() {
                     console.log('[AuthCallback] 🔄 REDIRECT: /doctor/dashboard');
                     navigate("/doctor/dashboard", { replace: true });
                 } else {
+                    // NIRIAVA REQUIREMENT: Bootstrap patient record
+                    console.log('[AuthCallback] 🚀 Bootstrapping patient record...');
+                    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+                    try {
+                        const bootstrapRes = await fetch(`${apiBase}/api/auth/bootstrap-patient`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${data.session.access_token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        if (!bootstrapRes.ok) {
+                            console.warn('[AuthCallback] ⚠️ Bootstrap failed:', await bootstrapRes.text());
+                        } else {
+                            console.log('[AuthCallback] ✅ Patient bootstrap complete');
+                        }
+                    } catch (bootstrapErr) {
+                        console.error('[AuthCallback] ❌ Bootstrap connection error:', bootstrapErr);
+                    }
+
                     console.log('[AuthCallback] 🔄 REDIRECT: /patient/dashboard');
                     navigate("/patient/dashboard", { replace: true });
                 }

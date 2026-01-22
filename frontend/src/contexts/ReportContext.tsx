@@ -44,48 +44,58 @@ export function ReportProvider({ children }: { children: ReactNode }) {
     const fetchReports = async (userId: string) => {
         try {
             setLoading(true);
-            console.log('🔍 Fetching reports for user:', userId);
+            console.log('🔍 [ReportContext] Fetching reports for user:', userId);
 
-            const { data, error } = await supabase
-                .from('health_reports')
-                .select('*')
-                .eq('user_id', userId)
-                .order('uploaded_at', { ascending: false });
+            const apiBase = getApiBaseUrl();
+            console.log('📡 [ReportContext] START fetch backend reports from:', `${apiBase}/api/reports/patient/${userId}`);
 
-            if (error) {
-                console.error('❌ Error fetching reports:', error);
+            const response = await fetch(`${apiBase}/api/reports/patient/${userId}`, {
+                headers: {
+                    'Authorization': `Bearer ${session?.access_token}`,
+                    'Accept': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                console.error('❌ Backend reports fetch failed:', response.status);
+                setLoading(false);
                 return;
             }
 
-            console.log('📊 Fetched reports from DB:', data?.length || 0);
+            const result = await response.json();
+            const data = result.reports || [];
+
+            console.log('📡 [ReportContext] END fetch backend reports:', data.length);
+            console.log('📊 Fetched reports from DB via Backend:', data.length);
 
             if (data) {
                 console.log('📦 Raw data from Supabase:', JSON.stringify(data, null, 2));
 
                 // Transform backend data to match Report interface
-                const transformedReports: Report[] = data.map((report, index) => {
-                    console.log(`🔄 Transforming report ${index + 1}:`, {
-                        id: report.id,
-                        file_type: report.file_type,
-                        patient_id: report.patient_id,
-                        uploaded_at: report.uploaded_at,
-                        has_report_json: !!report.report_json
-                    });
+                const transformedReports: Report[] = data.map((report: any, index: number) => {
+                    // Match the shape returned by backend/src/routes/reports.ts
+                    // which is { id, filename, status, uploadedAt, parsedData, source }
+                    // OR the raw DB shape { id, report_json, uploaded_at, file_type, patient_id }
+
+                    const rJson = report.parsedData || report.report_json;
+                    const upAt = report.uploadedAt || report.uploaded_at;
+                    const fType = report.source || report.file_type;
+                    const pId = report.patient_id || 'N/A';
 
                     return {
                         id: report.id,
-                        name: report.file_type || 'Health Report',
-                        title: report.report_json?.metadata?.title || report.file_type || 'Medical Report',
-                        summary: report.report_json?.summary || report.summary || 'Clinical record processed',
-                        date: report.uploaded_at,
-                        uploaded_at: report.uploaded_at,
-                        patientId: report.patient_id || 'N/A',
-                        report_json: report.report_json, // ✅ DO NOT STRIP THIS
+                        name: fType || 'Health Report',
+                        title: rJson?.metadata?.title || fType || 'Medical Report',
+                        summary: rJson?.summary || report.summary || 'Clinical record processed',
+                        date: upAt,
+                        uploaded_at: upAt,
+                        patientId: pId,
+                        report_json: rJson,
                         content: {
-                            profile: report.report_json?.data?.profile,
-                            extractedParameters: report.report_json?.data?.parameters || [],
-                            extractedMedications: report.report_json?.data?.medications || [],
-                            extractedAllergies: report.report_json?.data?.profile?.allergies || []
+                            profile: rJson?.data?.profile,
+                            extractedParameters: rJson?.data?.parameters || [],
+                            extractedMedications: rJson?.data?.medications || [],
+                            extractedAllergies: rJson?.data?.profile?.allergies || []
                         }
                     };
                 });
@@ -113,17 +123,17 @@ export function ReportProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    // Load reports when user logs in
+    // Load reports when user logs in (ONLY for patients)
     useEffect(() => {
-        if (user?.id) {
-            console.log('👤 User logged in, fetching reports...');
+        if (user?.id && user?.role === 'patient') {
+            console.log('👤 Patient logged in, fetching reports...');
             fetchReports(user.id);
         } else {
-            console.log('👤 No user, clearing reports');
+            console.log('👤 No patient user, clearing reports');
             setReports([]);
             setLoading(false);
         }
-    }, [user?.id]);
+    }, [user?.id, user?.role]);
 
     const addReport = async (file: File) => {
         if (!user?.id || !session?.access_token) {

@@ -4,6 +4,7 @@ import multer from "multer";
 import { smartExtract } from "../utils/extractors/smartExtractor";
 import { getSupabaseAdminClient } from "../lib/supabaseClient";
 import { verifyToken } from "../middleware/verifyToken";
+import { MultiLLMService } from "../services/MultiLLMService";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -52,6 +53,7 @@ router.post(
             const userId = req.user?.id;
 
             if (!userId) {
+                console.error("❌ No user ID found in request");
                 res.status(401).json({ error: "Unauthorized - no user found" });
                 return;
             }
@@ -75,12 +77,22 @@ router.post(
             });
 
             // Extract text using smart extractor
-            const extractedText = await smartExtract(file);
+            console.log("🔄 Starting OCR/text extraction...");
+            let extractedText: string;
+            try {
+                extractedText = await smartExtract(file);
+            } catch (extractErr: any) {
+                console.error("❌ Text extraction failed:", extractErr.message);
+                res.status(500).json({
+                    error: "Text extraction failed",
+                    details: extractErr.message
+                });
+                return;
+            }
             console.log(`📄 Extracted text length: ${extractedText.length} characters`);
 
-            // Process with Gemini API
-            const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
-            const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            // Process with MultiLLM Service (Mistral, OpenRouter, NVIDIA, Qwen)
+            const multiLLM = new MultiLLMService();
 
             const prompt = `
 You are a medical document analyzer for the healthcare platform Niraiva.
@@ -279,57 +291,75 @@ You MUST return JSON matching this EXACT structure:
 
 TEXT:
 ${extractedText}
-      `;
+            `;
 
-            console.log("🤖 Calling Gemini API...");
+            console.log("🤖 Calling MultiLLM Service (Mistral, OpenRouter, NVIDIA, Qwen)...");
             let aiJSON: any = null;
             let aiStatus: 'parsed' | 'failed' = 'failed';
+            let usedProvider = 'unknown';
 
             try {
-                const aiRes = await fetch(GEMINI_URL, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        contents: [
-                            {
-                                parts: [{ text: prompt }],
-                            },
-                        ],
-                    }),
-                });
+                console.log("📋 MultiLLMService is initialized, calling parseReport...");
+                const result = await multiLLM.parseReport(extractedText, prompt);
+                aiJSON = result.data;
+                usedProvider = result.provider;
+                aiStatus = 'parsed';
+                console.log(`✅ Report parsed successfully with provider: ${result.provider}`);
+            } catch (parseErr: any) {
+                console.warn(`❌ Failed to parse with MultiLLM Service:`, parseErr);
+                console.warn(`Error type:`, parseErr.constructor.name);
+                console.warn(`Error message:`, parseErr.message);
+                console.warn(`Error stack:`, parseErr.stack);
+                aiStatus = 'failed';
+                aiJSON = null;
+            }
 
-                if (!aiRes.ok) {
-                    const errText = await aiRes.text();
-                    console.error("❌ Gemini API error:", aiRes.status, errText);
-                    throw new Error(`Gemini API Error ${aiRes.status}`);
+            // Fallback: Extract basic parameters from raw text if AI failed
+            if (!aiJSON) {
+                const basicParams: any[] = [];
+                const patterns = [
+                    { regex: /blood\s*pressure[:\s]+(\d+)\s*\/\s*(\d+)/gi, name: 'Blood Pressure', unit: 'mmHg' },
+                    { regex: /heart\s*rate[:\s]+(\d+)/gi, name: 'Heart Rate', unit: 'bpm' },
+                    { regex: /temperature[:\s]+(\d+\.?\d*)/gi, name: 'Temperature', unit: '°F' },
+                    { regex: /pulse[:\s]+(\d+)/gi, name: 'Pulse', unit: 'bpm' }
+                ];
+
+                for (const pattern of patterns) {
+                    let match;
+                    while ((match = pattern.regex.exec(extractedText)) !== null) {
+                        basicParams.push({
+                            name: pattern.name,
+                            value: parseInt(match[1]),
+                            unit: pattern.unit,
+                            status: 'normal'
+                        });
+                    }
                 }
 
-                const aiData = await aiRes.json() as any;
-                const aiText =
-                    aiData?.candidates?.[0]?.content?.parts?.[0]?.text ||
-                    JSON.stringify(aiData);
-
-                try {
-                    aiJSON = JSON.parse(aiText);
-                } catch (err) {
-                    const match = aiText.match(/\{[\s\S]*\}/);
-                    aiJSON = match ? JSON.parse(match[0]) : { raw: aiText };
-                }
-                aiStatus = "parsed";
-                console.log("✅ Gemini response parsed successfully");
-            } catch (err: any) {
-                console.warn("⚠️ Gemini AI Parsing failed (Continuing upload):", err.message);
-                aiStatus = "failed";
                 aiJSON = {
                     type: "health_report",
-                    error: "AI Parsing failed or quota exceeded",
-                    processingStatus: "failure",
-                    eventInfo: {
-                        displayTitle: "Manual Report Upload",
-                        displaySubtitle: "Upload succeeded, AI analysis failed",
-                        icon: "O"
+                    error: "AI Parsing failed - using basic extraction",
+                    processingStatus: "partial",
+                    metadata: {
+                        documentType: "Medical Report"
                     },
-                    data: { parameters: [], medications: [], conditions: [] }
+                    data: {
+                        parameters: basicParams.length > 0 ? basicParams : [{
+                            name: "Report Uploaded",
+                            value: 1,
+                            unit: "report",
+                            status: "normal"
+                        }],
+                        medications: [],
+                        conditions: [],
+                        appointments: []
+                    },
+                    eventInfo: {
+                        eventType: "diagnostic_report",
+                        displayTitle: "Medical Report Uploaded",
+                        displaySubtitle: `Report analyzed - ${basicParams.length} vital(s) found`,
+                        icon: "T"
+                    }
                 };
             }
 
@@ -338,18 +368,30 @@ ${extractedText}
 
             console.log("💾 Storing report in Supabase...");
             const supabaseAdmin = getSupabaseAdminClient();
-            const { data: reportData, error: dbError } = await supabaseAdmin
-                .from("health_reports")
-                .insert({
-                    user_id: userId,
-                    patient_id: patientId,
-                    report_json: aiJSON,
-                    raw_text: extractedText,
-                    file_type: file.mimetype,
-                    uploaded_at: new Date().toISOString(),
-                })
-                .select('id')
-                .single();
+
+            let reportData: any = null;
+            let dbError: any = null;
+
+            try {
+                const result = await supabaseAdmin
+                    .from("health_reports")
+                    .insert({
+                        user_id: userId,
+                        patient_id: patientId,
+                        report_json: aiJSON,
+                        raw_text: extractedText,
+                        file_type: file.mimetype,
+                        uploaded_at: new Date().toISOString(),
+                    })
+                    .select('id')
+                    .single();
+
+                reportData = result.data;
+                dbError = result.error;
+            } catch (err: any) {
+                console.error("❌ Database insert exception:", err);
+                dbError = err;
+            }
 
             if (dbError) {
                 console.error("🔥 Supabase insert error:", dbError);
@@ -357,6 +399,7 @@ ${extractedText}
                     status: "supabase-error",
                     message: "Supabase insert failed",
                     supabase_error: dbError,
+                    details: dbError?.message || JSON.stringify(dbError)
                 });
                 return;
             }
@@ -387,6 +430,31 @@ ${extractedText}
                 });
             }
 
+            // Insert parsed health parameters into health_parameters table
+            if (aiStatus === 'parsed' && aiJSON.data?.parameters && Array.isArray(aiJSON.data.parameters)) {
+                console.log(`📊 Inserting ${aiJSON.data.parameters.length} health parameters...`);
+                const parametersToInsert = aiJSON.data.parameters.map((param: any) => ({
+                    user_id: userId,
+                    name: param.name || param.parameter || 'Unknown',
+                    value: param.value || 0,
+                    unit: param.unit || '',
+                    status: param.status || param.interpretation || 'normal',
+                    measured_at: new Date().toISOString(),
+                    source: 'uploaded_report',
+                }));
+
+                const { error: paramError } = await supabaseAdmin
+                    .from('health_parameters')
+                    .insert(parametersToInsert);
+
+                if (paramError) {
+                    console.error('⚠️  Warning: Failed to insert health parameters:', paramError);
+                    // Don't fail the request, just log the warning
+                } else {
+                    console.log(`✅ Successfully inserted ${parametersToInsert.length} health parameters`);
+                }
+            }
+
             console.log("✅ Report and timeline events stored successfully");
 
             res.json({
@@ -394,6 +462,7 @@ ${extractedText}
                 ai_status: aiStatus,
                 patient_id: patientId,
                 report: aiJSON,
+                reportId: reportData.id,
                 report_id: reportData.id
             });
         } catch (err) {

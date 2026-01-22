@@ -4,7 +4,6 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { verifyToken } from "./middleware/verifyToken";
 import { fhirRouter } from "./routes/fhir";
 // import { demoRouter } from "./routes/demo"; // Removed for production
-import { uploadRouter } from "./routes/upload";
 import uploadReportRouter from "./routes/uploadReport";
 import reportsRouter from "./routes/reports";
 import { abhaRouter } from "./routes/abha";
@@ -19,15 +18,18 @@ import googleCallbackRoutes from "./routes/google/callback.routes";
 import googleStatusRoutes from "./routes/google/status.routes";
 import doctorRouter from "./routes/doctor";
 import userRouter from "./routes/user";
+import authRouter from "./routes/auth";
+import timelineRouter from "./modules/timeline/timeline.routes";
 
 const app = express();
 
 const port = process.env.PORT ? Number(process.env.PORT) : 5000;
 const allowedOrigins = [
+    "https://695a9db4562490a60c06fb56--niriava.netlify.app",
     "https://niriava.netlify.app",
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://niraiva-app.vercel.app", // Legacy
+    "https://niraiva-app.vercel.app",
 ];
 
 app.use(
@@ -84,8 +86,6 @@ console.log("✅ /api/fhir (sync) routes registered");
 
 // Register the upload endpoints (handles /api/upload-report)
 // Keep the existing uploadRouter (provides /api/upload)
-app.use("/api", uploadRouter);
-// Register the heavy OCR/pdf/Gemini route at the same /api prefix — it defines /upload-report
 app.use("/api", uploadReportRouter);
 console.log("✅ /api/upload and /api/upload-report routes registered");
 
@@ -127,7 +127,13 @@ app.get("/health", (_req, res) => {
 // Doctor Portal API (Protected)
 app.use("/api/doctor", verifyToken, doctorRouter);
 app.use("/api/user", verifyToken, userRouter);
-console.log("✅ /api/doctor and /api/user routes registered");
+app.use("/api/auth", authRouter);
+app.use("/api/timeline", verifyToken, timelineRouter);
+console.log("✅ /api/doctor, /api/user, and /api/timeline routes registered");
+
+import chatRouter from "./routes/chat";
+app.use("/api/chat", verifyToken, chatRouter);
+console.log("✅ /api/chat routes registered");
 
 // ABHA-specific error handler (must be after ABHA routes)
 import { abhaErrorHandler } from "./middleware/errorHandler";

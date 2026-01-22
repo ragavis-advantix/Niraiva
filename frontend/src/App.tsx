@@ -7,21 +7,22 @@ import { AnimatePresence } from "framer-motion";
 import { ReportProvider } from "@/contexts/ReportContext";
 import { DataProvider } from '@/contexts/DataContext';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import TimelineAssistant from '@/components/TimelineAssistant';
 import LandingPage from "./pages/LandingPage";
-import Dashboard from "./pages/Dashboard";
-import Timeline from "./pages/Timeline";
-import Diagnostic from "./pages/Diagnostic";
-import Profile from "./pages/Profile";
+import Dashboard from "./apps/patient/pages/Dashboard";
+import Timeline from "./apps/patient/pages/Timeline";
+import Diagnostic from "./apps/patient/pages/Diagnostic";
+import Profile from "./apps/patient/pages/Profile";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import VerifyEmail from "./pages/VerifyEmail";
 import AuthCallback from "./pages/AuthCallback";
-import HealthReportUpload from "./pages/HealthReportUpload";
+import HealthReportUpload from "./apps/patient/pages/HealthReportUpload";
 import NotFound from "./pages/NotFound";
 import DoctorLogin from "./pages/doctor/DoctorLogin";
-import DoctorDashboard from "./pages/doctor/DoctorDashboard";
-import DoctorPatientProfile from "./pages/doctor/DoctorPatientProfile";
-import DoctorProfile from "./pages/doctor/DoctorProfile";
+import DoctorDashboard from "./apps/doctor/pages/DoctorDashboard";
+import DoctorPatientProfile from "./apps/doctor/pages/DoctorPatientProfile";
+import DoctorProfile from "./apps/doctor/pages/DoctorProfile";
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
@@ -56,42 +57,16 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const DoctorProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading: authLoading } = useAuth();
   const location = useLocation();
-  const [roleLoading, setRoleLoading] = useState(true);
-  const [isDoctor, setIsDoctor] = useState(false);
 
-  useEffect(() => {
-    const checkDoctorRole = async () => {
-      if (!user) {
-        setRoleLoading(false);
-        return;
-      }
+  console.log('[DoctorProtectedRoute] Checking access:', {
+    user: !!user,
+    role: user?.role,
+    loading: authLoading,
+    path: location.pathname
+  });
 
-      try {
-        const { data: roleRow, error } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        console.log('Protected route role check:', { roleRow, error, userId: user.id });
-
-        if (roleRow && roleRow.role === 'doctor') {
-          setIsDoctor(true);
-        } else {
-          setIsDoctor(false);
-        }
-      } catch (error) {
-        console.error('Role check error:', error);
-        setIsDoctor(false);
-      } finally {
-        setRoleLoading(false);
-      }
-    };
-
-    checkDoctorRole();
-  }, [user]);
-
-  if (authLoading || roleLoading) {
+  if (authLoading) {
+    console.log('[DoctorProtectedRoute] Auth loading, showing spinner');
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500"></div>
@@ -100,13 +75,27 @@ const DoctorProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   }
 
   if (!user) {
+    console.log('[DoctorProtectedRoute] No user, redirecting to login');
     return <Navigate to="/doctor/login" state={{ from: location }} replace />;
   }
 
-  if (!isDoctor) {
+  // If user exists but role is not yet enriched, show loading
+  if (!user.role) {
+    console.log('[DoctorProtectedRoute] User role not yet enriched, showing spinner');
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-500"></div>
+      </div>
+    );
+  }
+
+  // Use the role from enriched user data (set by AuthContext)
+  if (user.role !== 'doctor') {
+    console.log('[DoctorProtectedRoute] User is not a doctor, role:', user.role, '- redirecting to login');
     return <Navigate to="/doctor/login" replace />;
   }
 
+  console.log('[DoctorProtectedRoute] ✅ Access granted');
   return <>{children}</>;
 };
 
@@ -221,6 +210,7 @@ const App = () => (
                       <Toaster />
                       <Sonner />
                       <AppRoutes />
+                      <TimelineAssistant />
                     </>
                   </ReportProvider>
                 </DataProvider>

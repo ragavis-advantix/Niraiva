@@ -14,16 +14,11 @@ export class MultiLLMService {
     }
 
     private initializeProviders() {
-        // 1. Gemini (Primary)
-        if (process.env.GEMINI_API_KEY) {
-            this.providers.push({
-                name: 'Gemini',
-                parse: async (ocrText, prompt) => this.callGemini(ocrText, prompt)
-            });
-        }
+        console.log('🤖 [MultiLLM] Initializing providers...');
 
-        // 2. Mistral
+        // 1. Mistral
         if (process.env.MISTRAL_API_KEY) {
+            console.log('✅ [MultiLLM] Mistral provider enabled');
             this.providers.push({
                 name: 'Mistral',
                 parse: async (ocrText, prompt) => this.callOpenAICompatible(
@@ -34,45 +29,54 @@ export class MultiLLMService {
                     prompt
                 )
             });
+        } else {
+            console.warn('❌ [MultiLLM] Mistral disabled: MISTRAL_API_KEY missing');
         }
 
-        // 3. OpenRouter (GPT-Free)
+        // 2. OpenRouter (GPT-Free)
         if (process.env.OPENROUTER_API_KEY) {
+            console.log('✅ [MultiLLM] OpenRouter provider enabled');
             this.providers.push({
                 name: 'OpenRouter',
                 parse: async (ocrText, prompt) => this.callOpenAICompatible(
                     'https://openrouter.ai/api/v1/chat/completions',
                     process.env.OPENROUTER_API_KEY!,
-                    'google/gemini-2.0-flash-exp:free', // Using a free model from OpenRouter
+                    'google/gemini-2.0-flash-exp:free',
                     ocrText,
                     prompt,
                     { 'HTTP-Referer': 'https://niraiva.com', 'X-Title': 'Niraiva' }
                 )
             });
+        } else {
+            console.warn('❌ [MultiLLM] OpenRouter disabled: OPENROUTER_API_KEY missing');
         }
 
-        // 4. NVIDIA NIM
+        // 3. NVIDIA NIM
         if (process.env.NVIDIA_API_KEY) {
+            console.log('✅ [MultiLLM] NVIDIA provider enabled');
             this.providers.push({
                 name: 'NVIDIA',
                 parse: async (ocrText, prompt) => this.callOpenAICompatible(
                     'https://integrate.api.nvidia.com/v1/chat/completions',
                     process.env.NVIDIA_API_KEY!,
-                    'meta/llama-3.1-405b-instruct', // Example NVIDIA model
+                    'meta/llama-3.1-405b-instruct',
                     ocrText,
                     prompt
                 )
             });
+        } else {
+            console.warn('❌ [MultiLLM] NVIDIA disabled: NVIDIA_API_KEY missing');
         }
 
-        // 5. Qwen (via OpenRouter)
+        // 4. Qwen (via OpenRouter)
         if (process.env.OPENROUTER_API_KEY) {
+            console.log('✅ [MultiLLM] Qwen provider enabled');
             this.providers.push({
                 name: 'Qwen',
                 parse: async (ocrText, prompt) => this.callOpenAICompatible(
                     'https://openrouter.ai/api/v1/chat/completions',
                     process.env.OPENROUTER_API_KEY!,
-                    'alibaba/qwen-2.5-72b-instruct', // Using Qwen via OpenRouter
+                    'alibaba/qwen-2.5-72b-instruct',
                     ocrText,
                     prompt,
                     { 'HTTP-Referer': 'https://niraiva.com', 'X-Title': 'Niraiva' }
@@ -80,49 +84,217 @@ export class MultiLLMService {
             });
         }
 
-        console.log(`🤖 MultiLLMService initialized with ${this.providers.length} providers: ${this.providers.map(p => p.name).join(', ')}`);
+        console.log(`🤖 [MultiLLM] Ready with ${this.providers.length} providers.`);
     }
 
     async parseReport(ocrText: string, customPrompt?: string): Promise<{ data: ParsedReport; provider: string }> {
         const prompt = customPrompt || this.getDefaultPrompt(ocrText);
+        const errors: any[] = [];
+
+        if (this.providers.length === 0) {
+            console.error('❌ [MultiLLM] No providers initialized! Check environment variables.');
+            throw new Error('No AI providers configured in backend');
+        }
 
         for (const provider of this.providers) {
             try {
-                console.log(`🤖 Attempting parsing with ${provider.name}...`);
+                console.log(`🤖 [MultiLLM] Attempting parsing with ${provider.name}...`);
                 const result = await provider.parse(ocrText, prompt);
-                console.log(`✅ ${provider.name} parsing successful`);
+                console.log(`✅ [MultiLLM] ${provider.name} parsing successful`);
                 return { data: result, provider: provider.name };
             } catch (error: any) {
-                console.warn(`⚠️ ${provider.name} failed: ${error.message}`);
-                // Continue to next provider
+                console.warn(`⚠️ [MultiLLM] ${provider.name} failed:`, error.message);
+                errors.push({ provider: provider.name, error: error.message });
             }
         }
 
-        throw new Error('All AI providers failed to parse the report');
+        const details = errors.map(e => `${e.provider}: ${e.error}`).join(' | ');
+        throw new Error(`All AI providers failed: ${details}`);
     }
 
-    private async callGemini(ocrText: string, prompt: string): Promise<ParsedReport> {
-        const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+    // --- NEW: Generic Chat Method ---
 
+    async runLLM(providerName: string, request: { systemPrompt: string; userPrompt: string; temperature?: number }): Promise<string> {
+        const provider = this.providers.find(p => p.name.toLowerCase() === providerName.toLowerCase());
+
+        if (!provider) {
+            console.warn(`⚠️ [MultiLLM] Provider '${providerName}' not found or disabled. Falling back to first available.`);
+            // Fallback logic could go here, or just throw
+            if (this.providers.length > 0) {
+                return this.runProviderRaw(this.providers[0], request);
+            }
+            throw new Error(`LLM Provider '${providerName}' not available`);
+        }
+
+        return this.runProviderRaw(provider, request);
+    }
+
+    async runLLMStream(providerName: string, request: { systemPrompt: string; userPrompt: string; temperature?: number }): Promise<NodeJS.ReadableStream> {
+        const provider = this.providers.find(p => p.name.toLowerCase() === providerName.toLowerCase());
+
+        if (!provider) {
+            console.warn(`⚠️ [MultiLLM] Provider '${providerName}' not found or disabled. Falling back to first available.`);
+            if (this.providers.length > 0) {
+                return this.runProviderStreamRaw(this.providers[0], request);
+            }
+            throw new Error(`LLM Provider '${providerName}' not available`);
+        }
+
+        return this.runProviderStreamRaw(provider, request);
+    }
+
+    private async runProviderRaw(provider: AIProvider, req: { systemPrompt: string; userPrompt: string; temperature?: number }): Promise<string> {
+        // We need to access the internal callOpenAICompatible or similar logic. 
+        // Since AIProvider interface currently only exposes `parse`, we need to refactor or cast.
+        // For this task, I will implement a helper that switches based on provider name since we know the implementation details.
+
+        // This is a pragmatic implementation to reuse the existing `callOpenAICompatible` logic.
+
+        let url = '';
+        let apiKey = '';
+        let model = '';
+        let extraHeaders = {};
+
+        switch (provider.name) {
+            case 'Mistral':
+                url = 'https://api.mistral.ai/v1/chat/completions';
+                apiKey = process.env.MISTRAL_API_KEY!;
+                model = 'mistral-large-latest';
+                break;
+            case 'OpenRouter':
+                url = 'https://openrouter.ai/api/v1/chat/completions';
+                apiKey = process.env.OPENROUTER_API_KEY!;
+                model = 'google/gemini-2.0-flash-exp:free';
+                extraHeaders = { 'HTTP-Referer': 'https://niraiva.com', 'X-Title': 'Niraiva' };
+                break;
+            case 'NVIDIA':
+                url = 'https://integrate.api.nvidia.com/v1/chat/completions';
+                apiKey = process.env.NVIDIA_API_KEY!;
+                model = 'meta/llama-3.1-405b-instruct';
+                break;
+            case 'Qwen': // Assuming Qwen is also via OpenRouter as per init
+                url = 'https://openrouter.ai/api/v1/chat/completions';
+                apiKey = process.env.OPENROUTER_API_KEY!;
+                model = 'alibaba/qwen-2.5-72b-instruct';
+                extraHeaders = { 'HTTP-Referer': 'https://niraiva.com', 'X-Title': 'Niraiva' };
+                break;
+            default:
+                throw new Error(`Provider implementation for ${provider.name} not found in runLLM`);
+        }
+
+        // Call the raw API, but return TEXT not JSON (unlike parseReport)
+        return this.callChatCompletion(url, apiKey, model, req.systemPrompt, req.userPrompt, extraHeaders);
+    }
+
+    private async runProviderStreamRaw(provider: AIProvider, req: { systemPrompt: string; userPrompt: string; temperature?: number }): Promise<NodeJS.ReadableStream> {
+        let url = '';
+        let apiKey = '';
+        let model = '';
+        let extraHeaders = {};
+
+        switch (provider.name) {
+            case 'Mistral':
+                url = 'https://api.mistral.ai/v1/chat/completions';
+                apiKey = process.env.MISTRAL_API_KEY!;
+                model = 'mistral-large-latest';
+                break;
+            case 'OpenRouter':
+                url = 'https://openrouter.ai/api/v1/chat/completions';
+                apiKey = process.env.OPENROUTER_API_KEY!;
+                model = 'google/gemini-2.0-flash-exp:free';
+                extraHeaders = { 'HTTP-Referer': 'https://niraiva.com', 'X-Title': 'Niraiva' };
+                break;
+            case 'NVIDIA':
+                url = 'https://integrate.api.nvidia.com/v1/chat/completions';
+                apiKey = process.env.NVIDIA_API_KEY!;
+                model = 'meta/llama-3.1-405b-instruct';
+                break;
+            case 'Qwen':
+                url = 'https://openrouter.ai/api/v1/chat/completions';
+                apiKey = process.env.OPENROUTER_API_KEY!;
+                model = 'alibaba/qwen-2.5-72b-instruct';
+                extraHeaders = { 'HTTP-Referer': 'https://niraiva.com', 'X-Title': 'Niraiva' };
+                break;
+            default:
+                throw new Error(`Provider implementation for ${provider.name} not found in runLLMStream`);
+        }
+
+        return this.callChatCompletionStream(url, apiKey, model, req.systemPrompt, req.userPrompt, extraHeaders);
+    }
+
+    private async callChatCompletion(
+        url: string,
+        apiKey: string,
+        model: string,
+        systemPrompt: string,
+        userPrompt: string,
+        extraHeaders: Record<string, string> = {}
+    ): Promise<string> {
         const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                ...extraHeaders
+            },
             body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }]
+                model: model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                // No response_format: { type: 'json_object' } for chat
             })
         });
 
         if (!response.ok) {
-            throw new Error(`Gemini API Error: ${response.status}`);
+            const err = await response.text();
+            throw new Error(`API Error (${url}): ${response.status} - ${err}`);
         }
 
         const json: any = await response.json();
-        const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = json.choices?.[0]?.message?.content;
 
-        if (!text) throw new Error('Empty response from Gemini');
+        if (!text) throw new Error('Empty response from API');
 
-        return this.extractJSON(text, ocrText);
+        return text;
+    }
+
+    private async callChatCompletionStream(
+        url: string,
+        apiKey: string,
+        model: string,
+        systemPrompt: string,
+        userPrompt: string,
+        extraHeaders: Record<string, string> = {}
+    ): Promise<NodeJS.ReadableStream> {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                ...extraHeaders
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                stream: true
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`API Error (${url}): ${response.status} - ${err}`);
+        }
+
+        if (!response.body) {
+            throw new Error('No response body for streaming');
+        }
+
+        return response.body;
     }
 
     private async callOpenAICompatible(

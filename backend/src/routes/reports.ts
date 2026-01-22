@@ -196,5 +196,73 @@ router.get("/:id/status", verifyToken, async (req: any, res: Response) => {
     }
 });
 
+/**
+ * GET /timeline
+ * Returns all timeline events for the authenticated user
+ */
+router.get("/timeline", verifyToken, async (req: any, res: Response) => {
+    try {
+        const userId = req.user.id;
+        const supabase = getSupabaseAdminClient();
+
+        console.log('📅 Fetching timeline events for user:', userId);
+        const { data, error } = await supabase
+            .from('timeline_events')
+            .select('*')
+            .eq('patient_id', userId)
+            .order('event_time', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching timeline events:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        return res.json({
+            success: true,
+            count: data?.length || 0,
+            events: data || []
+        });
+    } catch (err) {
+        console.error('Timeline route error:', err);
+        return res.status(500).json({ error: String(err) });
+    }
+});
+
+/**
+ * GET /timeline/event/:eventId/details
+ * Returns clinical parameters and trends for a specific timeline event
+ */
+router.get("/timeline/event/:eventId/details", verifyToken, async (req: any, res: Response) => {
+    try {
+        const { eventId } = req.params;
+        const supabase = getSupabaseAdminClient();
+
+        // Fetch parameters
+        const { data: parameters, error: paramError } = await supabase
+            .from('clinical_parameters')
+            .select('*')
+            .eq('timeline_event_id', eventId);
+
+        if (paramError) throw paramError;
+
+        // Fetch trends
+        const { data: trends, error: trendError } = await supabase
+            .from('parameter_trends')
+            .select('*')
+            .eq('current_event_id', eventId);
+
+        if (trendError) throw trendError;
+
+        return res.json({
+            success: true,
+            parameters: parameters || [],
+            trends: trends || []
+        });
+    } catch (err) {
+        console.error('Event details route error:', err);
+        return res.status(500).json({ error: String(err) });
+    }
+});
+
 export default router;
 

@@ -3,13 +3,26 @@ import axios from "axios";
 import { getSupabaseAdminClient } from "../../lib/supabaseClient";
 
 const router = Router();
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://niriava.netlify.app";
+const getFrontendUrl = (req: any) => {
+    // If FRONTEND_URL is explicitly set in env, use it
+    if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL.replace(/\/+$/, "");
+
+    // Otherwise, detect based on backend host
+    const host = req.get("host");
+    if (host?.includes("localhost") || host?.includes("127.0.0.1")) {
+        return "http://localhost:5173";
+    }
+
+    // Default to production Netlify
+    return "https://niriava.netlify.app";
+};
 
 router.get("/", async (req, res) => {
     const { code, state } = req.query;
+    const frontendUrl = getFrontendUrl(req);
 
     if (!code) {
-        return res.redirect(`${FRONTEND_URL}/upload-reports?error=no_code`);
+        return res.redirect(`${frontendUrl}/upload-reports?error=no_code`);
     }
 
     try {
@@ -42,10 +55,10 @@ router.get("/", async (req, res) => {
         const service = state === 'drive' ? 'drive' : 'gmail';
         const redirectParam = service === 'drive' ? 'driveLinked' : 'gmailLinked';
 
-        return res.redirect(`${FRONTEND_URL}/upload-reports?${redirectParam}=true`);
+        return res.redirect(`${frontendUrl}/upload-reports?${redirectParam}=true`);
     } catch (error: any) {
         console.error("❌ OAuth callback error:", error.response?.data || error.message);
-        return res.redirect(`${FRONTEND_URL}/upload-reports?error=oauth_failed`);
+        return res.redirect(`${frontendUrl}/upload-reports?error=oauth_failed`);
     }
 });
 

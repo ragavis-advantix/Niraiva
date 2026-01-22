@@ -1,10 +1,48 @@
+/**
+ * ⚠️ CRITICAL AUTHENTICATION FILE ⚠️
+ * 
+ * This file manages the core authentication logic for BOTH patient and doctor portals.
+ * 
+ * MODIFICATION WARNING:
+ * - This file has historically caused login issues when modified
+ * - ANY changes must be tested with BOTH patient AND doctor login flows
+ * - Test BOTH email/password AND Google OAuth authentication
+ * - Verify session persistence after page refresh
+ * 
+ * KEY RESPONSIBILITIES:
+ * - User authentication (signIn, signUp, signInWithGoogle)
+ * - User data enrichment (fetching role from user_roles table)
+ * - Session management (onAuthStateChange listener)
+ * - User initialization (ensuring profile and role entries exist)
+ * 
+ * CRITICAL FUNCTIONS:
+ * - enrichUserData(): Fetches role and patient_id from user_roles table
+ * - ensureUserInitialized(): Creates default profile and role entries
+ * - signIn(): Email/password authentication
+ * - signInWithGoogle(): OAuth authentication
+ * 
+ * TESTING CHECKLIST BEFORE COMMITTING:
+ * ✓ Patient email/password login → /patient/dashboard
+ * ✓ Doctor email/password login → /doctor/dashboard
+ * ✓ Patient Google OAuth → /patient/dashboard
+ * ✓ Doctor Google OAuth → /doctor/dashboard
+ * ✓ Session persistence on page refresh
+ * ✓ No console errors
+ * 
+ * See: authentication_protection_guide.md for full documentation
+ */
+
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 
 interface AuthContextType {
   session: Session | null;
-  user: User | null;
+  user: User & {
+    access_token?: string;
+    linked_patient_id?: string;
+    role?: string;
+  } | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, metadata?: any) => Promise<{
     user: User | null;
@@ -16,6 +54,64 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Enrich user object with data from user_roles (source of truth)
+const enrichUserData = async (user: User, session: Session | null) => {
+  if (!user?.id || !session?.access_token) {
+    console.log('[AuthContext] enrichUserData: Missing user or session, returning user as-is');
+    return user as any;
+  }
+
+  console.log('[AuthContext] 🔄 enrichUserData START for user:', user.email);
+
+  try {
+    // Add timeout to prevent hanging
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Role fetch timeout')), 5000)
+    );
+
+    // 1. Fetch role from user_roles with timeout
+    const roleFetchPromise = supabase
+      .from('user_roles')
+      .select('role, patient_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const { data: roleData, error: roleError } = await Promise.race([
+      roleFetchPromise,
+      timeoutPromise
+    ]) as any;
+
+    if (roleError) {
+      console.error('[AuthContext] ❌ Error fetching role:', roleError);
+    } else {
+      console.log('[AuthContext] ✅ Role fetched:', roleData?.role || 'not found');
+    }
+
+    // 2. Get patient_id from user_roles (already fetched above)
+    const linkedPatientId = roleData?.patient_id;
+    console.log('[AuthContext] ↳ Patient ID:', linkedPatientId || 'not found');
+
+    const enrichedUser = {
+      ...user,
+      access_token: session.access_token,
+      linked_patient_id: linkedPatientId,
+      role: roleData?.role || 'patient' // Default to patient if missing
+    };
+
+    console.log('[AuthContext] ✅ enrichUserData COMPLETE, role:', enrichedUser.role);
+    return enrichedUser;
+  } catch (error) {
+    console.error('[AuthContext] ❌ Error enriching user data:', error);
+    const fallbackUser = {
+      ...user,
+      access_token: session.access_token,
+      role: 'patient'
+    };
+    console.log('[AuthContext] ⚠️ Using fallback role: patient');
+    return fallbackUser;
+  }
+};
 
 // Ensure user has required profile and role entries (for manually created users)
 const ensureUserInitialized = async (user: User) => {
@@ -86,6 +182,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const hasEnriched = React.useRef<string | null>(null);
+
   useEffect(() => {
     const checkSession = async () => {
       console.log('[AuthContext] 🚀 STARTUP: Checking existing session...');
@@ -96,8 +194,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('[AuthContext] ↳ Session found:', !!session);
         console.log('[AuthContext] ↳ User:', user?.email, '| ID:', user?.id);
 
+        if (user && session && hasEnriched.current !== user.id) {
+          hasEnriched.current = user.id;
+          const enrichedUser = await enrichUserData(user, session);
+          setUser(enrichedUser);
+        } else if (user && session) {
+          // User already enriched, but still need to set the enriched user
+          const enrichedUser = await enrichUserData(user, session);
+          setUser(enrichedUser);
+        } else if (!user) {
+          setUser(null);
+        }
+
         setSession(session);
-        setUser(user);
         setLoading(false);
 
         console.log('[AuthContext] ✅ STARTUP: Session check complete');
@@ -116,23 +225,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthContext] 📡 onAuthStateChange EVENT:', event);
       console.log('[AuthContext] ↳ Session exists:', !!session);
       console.log('[AuthContext] ↳ User:', session?.user?.email, '| ID:', session?.user?.id);
-      console.log('[AuthContext] ↳ Current URL:', window.location.pathname);
+
+      if (!session?.user) {
+        hasEnriched.current = null;
+        setUser(null);
+        setSession(null);
+        setLoading(false);
+        return;
+      }
+
+      // Prevent duplicate enrichment for the same user
+      if (hasEnriched.current === session.user.id) {
+        console.log('[AuthContext] ⚠️ Skipping duplicate enrichment for same user');
+        setSession(session);
+        setLoading(false);
+        return;
+      }
+
+      hasEnriched.current = session.user.id;
+      const enrichedUser = await enrichUserData(session.user, session);
 
       setSession(session);
-      setUser(session?.user ?? null);
+      setUser(enrichedUser);
       setLoading(false);
 
-      // Handle user initialization for login events
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-        console.log('[AuthContext] 👤 User authenticated:', session.user.email);
-
-        // Auto-initialize missing user data (for manually created users)
-        console.log('[AuthContext] ↳ Ensuring user initialization...');
-        await ensureUserInitialized(session.user);
-        console.log('[AuthContext] ✅ User initialization complete');
+      if (event === 'SIGNED_IN') {
+        console.log('[AuthContext] 👤 User authenticated:', session?.user?.email);
       } else if (event === 'SIGNED_OUT') {
         console.log('[AuthContext] 👋 User signed out');
       }
+
     });
 
     return () => subscription.unsubscribe();
@@ -158,13 +280,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[AuthContext] ↳ User:', data.user?.email, '| ID:', data.user?.id);
       console.log('[AuthContext] ↳ Session Token:', data.session?.access_token?.substring(0, 20) + '...');
 
-      // Ensure user initialization after successful login
-      if (data.user) {
-        console.log('[AuthContext] ↳ Calling ensureUserInitialized()...');
-        await ensureUserInitialized(data.user);
-        console.log('[AuthContext] ✅ ensureUserInitialized completed');
-      }
-
+      // Skip ensureUserInitialized for now - causes RLS issues
+      // The onAuthStateChange handler will manage initialization
       console.log('[AuthContext] 🔑 SIGN_IN COMPLETE - user state will update via onAuthStateChange');
     } catch (error) {
       console.error('[AuthContext] 🔑 SIGN_IN FAILED with exception:', error);
@@ -240,8 +357,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    console.log('[AuthContext] 👋 SIGN_OUT FORCED');
+
+    // 1. Clear local state immediately for UI responsiveness
+    setSession(null);
+    setUser(null);
+
+    // 2. Clear all localStorage to remove Supabase tokens persistently
+    // (This fixes the issue where the token remains and auto-logs in on refresh)
+    localStorage.clear();
+
+    // 3. Fire-and-forget server signout (don't wait for it as it's hanging)
+    supabase.auth.signOut().catch(err => console.warn('Background signout warning:', err));
+
+    // 4. Force hard redirect immediately
+    window.location.href = '/';
   };
 
   const value = {

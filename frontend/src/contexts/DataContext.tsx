@@ -327,9 +327,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const apiBase = getApiBaseUrl();
     try {
       if (session?.access_token) {
+        console.log('📡 [DataContext] START fetch user-summary from:', `${apiBase}/api/reports/user-summary`);
         const resp = await fetch(`${apiBase}/api/reports/user-summary`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
+        console.log('📡 [DataContext] END fetch user-summary:', resp.status);
 
         if (resp.ok) {
           const rpt = await resp.json();

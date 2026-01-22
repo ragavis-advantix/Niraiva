@@ -1,3 +1,28 @@
+/**
+ * ⚠️ CRITICAL AUTHENTICATION FILE - PATIENT PORTAL ⚠️
+ * 
+ * This file manages patient login and redirect logic.
+ * 
+ * MODIFICATION WARNING:
+ * - This file has historically caused patient login issues
+ * - Changes to navigation logic MUST be tested thoroughly
+ * - Verify redirect to /patient/dashboard after successful login
+ * 
+ * CRITICAL LOGIC:
+ * - Line ~30: signIn() call to AuthContext
+ * - Line ~40-48: Role fetching from user_roles table
+ * - Line ~50-59: Role-based navigation (MUST redirect to /patient/dashboard for patients)
+ * 
+ * TESTING CHECKLIST:
+ * ✓ Email/password login redirects to /patient/dashboard
+ * ✓ Google OAuth login works correctly
+ * ✓ Invalid credentials show error message
+ * ✓ No redirect to landing page (/)
+ * ✓ No 404 errors after login
+ * 
+ * See: authentication_protection_guide.md for full documentation
+ */
+
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';

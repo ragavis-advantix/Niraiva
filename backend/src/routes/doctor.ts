@@ -58,17 +58,22 @@ router.post(
             const doctorId = doctor.id;
             console.log("✅ Doctor ID resolved:", doctorId);
 
-            // 1. Create patient record (NO AUTH USER)
-            console.log("📝 Creating patient record...");
+            // 1. Normalize gender to lowercase (constraint requires: male, female, other, prefer_not_to_say)
+            const normalizedGender = gender ? gender.toLowerCase() : null;
+            console.log("📝 Gender normalized:", { original: gender, normalized: normalizedGender });
+
+            // 2. Create patient record in patients table (source of truth)
+            console.log("📝 Creating patient in patients table...");
+
             const { data: patient, error: patientError } = await supabaseAdmin
                 .from("patients")
                 .insert({
                     name: name,
                     phone: phone,
                     dob: dob,
-                    gender: gender,
+                    gender: normalizedGender,
                     chronic_conditions: chronic_conditions || [],
-                    kyc_verified: false
+                    created_at: new Date().toISOString()
                 })
                 .select()
                 .single();
@@ -78,9 +83,9 @@ router.post(
                 throw patientError;
             }
 
-            console.log("✅ Patient created:", patient.id);
+            console.log("✅ Patient created in patients table:", patient.id);
 
-            // 2. Link patient to doctor using domain doctor ID
+            // 3. Link patient to doctor using domain doctor ID
             console.log("🔗 Linking patient to doctor...");
             const { error: linkError } = await supabaseAdmin
                 .from("doctor_patient_links")
@@ -96,28 +101,14 @@ router.post(
 
             console.log("✅ Patient linked to doctor");
 
-            // 3. Create empty clinical profile
-            console.log("📋 Creating clinical profile...");
-            const { error: profileError } = await supabaseAdmin
-                .from("patient_profiles")
-                .insert({
-                    patient_id: patient.id,
-                    medications: [],
-                    health_parameters: {}
-                });
-
-            if (profileError) {
-                console.error("❌ Profile creation error:", profileError);
-                throw profileError;
-            }
-
-            console.log("✅ Clinical profile created");
+            // 4. Return success response
+            console.log("✅ Patient creation complete");
 
             res.status(201).json({
                 success: true,
                 patient: {
                     id: patient.id,
-                    name: patient.name,  // ✅ Changed full_name → name
+                    name: patient.name,
                     phone: patient.phone,
                     dob: patient.dob,
                     gender: patient.gender,

@@ -3,9 +3,18 @@ import multer from "multer";
 import Tesseract from "tesseract.js";
 import { getSupabaseAdminClient, getSupabaseClient } from "../lib/supabaseClient";
 import { MultiLLMService } from "../services/MultiLLMService";
+import fs from "fs";
+import path from "path";
+
+const DEBUG_LOG = path.join(process.cwd(), "upload_debug.log");
+function debugLog(msg: string) {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(DEBUG_LOG, `[${timestamp}] ${msg}\n`);
+}
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
+let lastAIError: string | null = null;
 const multiLLMService = new MultiLLMService();
 
 // Extend Express Request to include multer file and user
@@ -37,6 +46,7 @@ router.post(
     upload.single("file"),
     async (req: Request, res: Response) => {
         try {
+            debugLog(`📥 [UPLOAD-REPORT] START - file: ${req.file?.originalname}, size: ${req.file?.size}`);
             console.log("📥 [UPLOAD-REPORT] POST request received");
             console.log("📥 [UPLOAD-REPORT] Headers:", {
                 authorization: req.headers.authorization ? "Bearer ..." : "missing",
@@ -127,6 +137,7 @@ router.post(
             }
 
             const cleanedText = cleanText(extractedText);
+            debugLog(`📝 Cleaned text length: ${cleanedText.length}`);
             console.log(`📝 Extracted text length: ${cleanedText.length} characters`);
 
             if (cleanedText.length < 10) {
@@ -221,16 +232,21 @@ ${cleanedText}
             let aiStatus: 'parsed' | 'failed' = 'failed';
 
             try {
+                debugLog("🤖 Starting AI Analysis...");
                 const { data } = await multiLLMService.parseReport(cleanedText, fullPrompt);
                 aiJSON = data;
                 aiStatus = "parsed";
+                debugLog(`✅ AI Success using: ${aiJSON.provider || 'unknown'}`);
                 console.log("✅ Analysis complete using MultiLLMService");
             } catch (err: any) {
-                console.warn("⚠️ All AI Providers failed (Continuing upload):", err.message);
+                const errorDetail = `AI Error: ${err.message} | OCR Length: ${cleanedText.length} | Text Snippet: ${cleanedText.substring(0, 100)}...`;
+                debugLog(`❌ AI FAILURE: ${errorDetail}`);
+                console.warn("⚠️ All AI Providers failed:", errorDetail);
+                lastAIError = errorDetail;
                 aiStatus = "failed";
                 aiJSON = {
                     type: "health_report",
-                    error: "All AI providers failed or quota exceeded",
+                    error: err.message,
                     processingStatus: "failure",
                     eventInfo: {
                         eventTitle: "Manual Report Upload",
@@ -246,11 +262,42 @@ ${cleanedText}
             const patientId = generatePatientId();
             const supabaseAdmin = getSupabaseAdminClient();
 
+            // Fetch or create user_profile ID (REQUIRED for health_reports)
+            debugLog(`🔍 Fetching profile for user: ${user.id}`);
+            let { data: profileRow } = await supabaseAdmin
+                .from('user_profiles')
+                .select('id')
+                .eq('user_id', user.id)
+                .maybeSingle();
+
+            if (!profileRow) {
+                debugLog(`✏️ Creating missing user_profile for user: ${user.id}`);
+                const { data: newProfile, error: profileErr } = await supabaseAdmin
+                    .from('user_profiles')
+                    .insert({
+                        user_id: user.id,
+                        email: user.email,
+                        created_at: new Date().toISOString()
+                    })
+                    .select('id')
+                    .single();
+
+                if (profileErr || !newProfile) {
+                    console.error("🔥 Failed to bootstrap profile:", profileErr);
+                    return res.status(500).json({ status: "error", message: "Failed to create user profile" });
+                }
+                profileRow = newProfile;
+            }
+
+            const patientProfileId = profileRow.id;
+            debugLog(`✅ Using patient_profile_id: ${patientProfileId}`);
+
             const { data: reportData, error: dbError } = await supabaseAdmin
                 .from("health_reports")
                 .insert({
                     user_id: user.id,
                     patient_id: patientId,
+                    patient_profile_id: patientProfileId, // ✅ ADDED REQUIRED COLUMN
                     report_json: aiJSON,
                     raw_text: cleanedText,
                     file_type: mime,
@@ -261,7 +308,14 @@ ${cleanedText}
 
             if (dbError) {
                 console.error("🔥 Supabase insert error:", dbError);
+                debugLog(`❌ Supabase Insert Error: ${JSON.stringify(dbError)}`);
                 return res.status(500).json({ status: "supabase-error", message: "Supabase insert failed", supabase_error: dbError });
+            }
+
+            if (!reportData) {
+                console.error("🔥 Supabase returned success but no data for select('id').single()");
+                debugLog("❌ Supabase Insert Error: No data returned");
+                return res.status(500).json({ status: "error", message: "Database returned no data" });
             }
 
             // ALSO: update user's profile health_metrics and add a timeline event so frontend can read it
@@ -342,53 +396,134 @@ ${cleanedText}
                 // Event 2: AI Summary (if AI succeeded)
                 if (aiStatus === 'parsed') {
                     try {
-                        const eventInfo = aiJSON?.eventInfo;
+                        debugLog(`📅 Starting timeline/parameters processing for report: ${reportData?.id}`);
+                        const eventInfo = aiJSON?.eventInfo || {};
 
-                        if (eventInfo) {
-                            const title = eventInfo.eventTitle || `Report uploaded: ${file.originalname}`;
-                            const description = eventInfo.eventDescription || `Extracted data — Blood: ${aiJSON?.data?.profile?.bloodType || 'N/A'}, Meds: ${aiJSON?.data?.medications?.length || 0}`;
-                            const eventType = eventInfo.eventType || 'report';
-                            const status = eventInfo.status || 'completed';
+                        // Fallback title/description if missing
+                        const title = eventInfo.eventTitle || `Report uploaded: ${file.originalname}`;
+                        const description = eventInfo.eventDescription || `Extracted data — Blood: ${aiJSON?.data?.profile?.bloodType || 'N/A'}, Meds: ${aiJSON?.data?.medications?.length || 0}`;
+                        const eventType = eventInfo.eventType || 'test';
+                        const eventStatus = eventInfo.status || 'completed';
+                        const eventTime = new Date().toISOString();
 
-                            console.log('📅 Creating timeline event:', {
-                                title,
-                                description,
-                                type: eventType,
-                                status
-                            });
+                        debugLog(`📅 Creating timeline event: "${title}" (${eventType})`);
 
-                            const { error: timelineError } = await supabaseAdmin.from('timeline_events').insert([{
-                                patient_id: user.id,
-                                title,
-                                description,
-                                type: eventType,
-                                status,
-                                date: new Date().toISOString()
-                            }]);
+                        const { error: timelineError } = await supabaseAdmin.from('timeline_events').insert([{
+                            patient_id: user.id,
+                            title,
+                            description,
+                            event_type: eventType,
+                            status: eventStatus,
+                            event_time: eventTime,
+                            source_report_id: reportData.id,
+                            metadata: { report_json: aiJSON }
+                        }]);
 
-                            if (timelineError) {
-                                console.warn('Failed to insert timeline event:', timelineError);
-                            } else {
-                                console.log('✅ Timeline event created successfully');
-                            }
+                        if (timelineError) {
+                            console.warn('❌ Failed to insert timeline event:', timelineError);
+                            debugLog(`❌ Timeline Insert Error: ${timelineError.message}`);
                         } else {
-                            console.warn('⚠️ No eventInfo extracted from Gemini, skipping timeline event');
+                            console.log('✅ Timeline event created successfully');
+                            debugLog('✅ Timeline event created successfully');
                         }
-                    } catch (e) {
-                        console.warn('Timeline insert error:', e);
+
+                        // 📊 NEW: Also insert into health_parameters for the "Show Details" modal
+                        if (aiJSON.data?.parameters && Array.isArray(aiJSON.data.parameters)) {
+                            console.log(`📊 Inserting ${aiJSON.data.parameters.length} health parameters...`);
+                            debugLog(`📊 Processing ${aiJSON.data.parameters.length} health parameters...`);
+
+                            // Use documentDate if available, otherwise eventTime
+                            const measuredAt = aiJSON.metadata?.documentDate ? new Date(aiJSON.metadata.documentDate).toISOString() : eventTime;
+
+                            const parametersToInsert = aiJSON.data.parameters.map((param: any) => ({
+                                user_id: user.id,
+                                name: param.name || param.parameter || 'Unknown',
+                                value: typeof param.value === 'number' ? param.value : parseFloat(String(param.value || 0)),
+                                unit: param.unit || '',
+                                status: param.status || param.interpretation || 'normal',
+                                measured_at: measuredAt,
+                                source: 'uploaded_report',
+                            })).filter((p: any) => !isNaN(p.value));
+
+                            if (parametersToInsert.length > 0) {
+                                const { error: paramError } = await supabaseAdmin
+                                    .from('health_parameters')
+                                    .insert(parametersToInsert);
+
+                                if (paramError) {
+                                    console.warn('⚠️ Warning: Failed to insert health parameters:', paramError);
+                                    debugLog(`⚠️ Health Parameters Insert Error: ${paramError.message}`);
+                                } else {
+                                    console.log(`✅ Successfully inserted ${parametersToInsert.length} health parameters`);
+                                    debugLog(`✅ Successfully inserted ${parametersToInsert.length} health parameters`);
+                                }
+                            }
+                        }
+                    } catch (e: any) {
+                        console.warn('Timeline/Parameters insert error:', e);
+                        debugLog(`❌ Timeline/Parameters Critical Error: ${e.message}`);
                     }
+                } else {
+                    debugLog('⚠️ Skipping timeline event because AI parsing failed');
                 }
             } catch (e) {
                 console.warn('Profile update after upload failed:', e);
             }
 
+            debugLog(`✅ Upload complete status: ${aiStatus}, reportId: ${reportData.id}`);
             console.log("✅ Upload processing complete");
-            return res.json({ status: "success", ai_status: aiStatus, patient_id: patientId, report: aiJSON, reportId: reportData.id });
+            return res.json({
+                status: "success",
+                ai_status: aiStatus,
+                patient_id: patientId,
+                report: aiJSON,
+                reportId: reportData.id,
+                report_id: reportData.id
+            });
         } catch (err: any) {
             console.error("❌ UPLOAD ERROR:", err);
-            return res.status(500).json({ status: "error", message: err?.message || "Unknown error", details: String(err) });
+            debugLog(`❌ CRITICAL UPLOAD ERROR: ${err.message}`);
+            return res.status(500).json({
+                status: "error",
+                message: err?.message || "Unknown error",
+                details: String(err)
+            });
         }
     }
 );
+
+// Test parsing directly
+router.get("/test-parse", async (req: Request, res: Response) => {
+    try {
+        const testText = "PATIENT: John Doe, DATE: 2024-01-01, TEST: Glucose 120 mg/dL";
+        const result = await multiLLMService.parseReport(testText);
+        res.json(result);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Debug AI Provider Status
+router.get("/debug-ai", async (req: Request, res: Response) => {
+    try {
+        const providers = (multiLLMService as any).providers || [];
+        const status = {
+            count: providers.length,
+            providerNames: providers.map((p: any) => p.name),
+            lastError: lastAIError,
+            envKeysPresent: {
+                MISTRAL: !!process.env.MISTRAL_API_KEY,
+                OPENROUTER: !!process.env.OPENROUTER_API_KEY,
+                NVIDIA: !!process.env.NVIDIA_API_KEY,
+                QWEN: !!process.env.QWEN_API_KEY,
+                GEMINI: !!process.env.GEMINI_API_KEY
+            },
+            nodeEnv: process.env.NODE_ENV
+        };
+        res.json(status);
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 export default router;

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,101 +10,68 @@ import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function DoctorLogin() {
+    console.log('[DoctorLogin] 🔐 Component RENDERED');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const { signIn, signInWithGoogle, user: authUser, loading: authLoading } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const { toast } = useToast();
+
+    // Auto-redirect if already logged in or after successful login
+    useEffect(() => {
+        console.log('[DoctorLogin] useEffect triggered:', {
+            authLoading,
+            hasUser: !!authUser,
+            role: authUser?.role
+        });
+
+        if (!authLoading && authUser?.role === 'doctor') {
+            console.log('[DoctorLogin] ✅ Doctor role confirmed, redirecting to dashboard...');
+            setLoading(false); // Clear loading state before redirect
+            navigate('/doctor/dashboard', { replace: true });
+        } else if (!authLoading && authUser?.role && authUser.role !== 'doctor') {
+            console.log('[DoctorLogin] ❌ User is not a doctor, role:', authUser.role);
+            setLoading(false);
+        }
+    }, [authUser, authLoading, navigate]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
 
-        try {
-            // Sign in with Supabase
-            const { data, error: authError } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
+        console.log('[DoctorLogin] 🔑 Signing in:', email);
 
-            if (authError) {
-                toast({
-                    title: 'Error',
-                    description: authError.message,
-                    variant: 'destructive',
-                });
-                setLoading(false);
-                return;
-            }
+        // Call signIn but don't await it - the promise may not resolve
+        // but onAuthStateChange will fire and update authUser
+        // The useEffect above will handle the redirect when authUser.role === 'doctor'
+        signIn(email, password).catch((error: any) => {
+            console.error('[DoctorLogin] ❌ Login failed:', error);
+            setLoading(false);
 
-            const user = data.user;
+            const errorMsg = error.message?.includes('Invalid login credentials')
+                ? 'Invalid email or password'
+                : 'Failed to sign in. Please try again.';
 
-            if (!user) {
-                toast({
-                    title: 'Error',
-                    description: 'Authentication failed',
-                    variant: 'destructive',
-                });
-                setLoading(false);
-                return;
-            }
-
-            // 🔒 Role check - verify user is a doctor
-            // Query user_roles table with maybeSingle() to avoid errors on missing rows
-            const { data: roleRow, error: roleError } = await supabase
-                .from('user_roles')
-                .select('role')
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-            console.log('Role check:', { roleRow, roleError, userId: user.id });
-            console.log("ROLE FETCH RESULT", roleRow, roleError);
-
-            if (!roleRow || roleRow.role !== 'doctor') {
-                // Sign out the user if they're not a doctor
-                await supabase.auth.signOut();
-                toast({
-                    title: 'Access Denied',
-                    description: 'Doctor account required. Please use the patient login.',
-                    variant: 'destructive',
-                });
-                setLoading(false);
-                return;
-            }
-
-            // Success - redirect to doctor dashboard
-            navigate('/doctor/dashboard');
-        } catch (error: any) {
             toast({
-                title: 'Error',
-                description: error.message || 'Failed to sign in',
+                title: 'Login Failed',
+                description: errorMsg,
                 variant: 'destructive',
             });
-        } finally {
-            setLoading(false);
-        }
+        });
+
+        // Don't set loading to false here - let the useEffect redirect handle it
+        // or the error handler above will set it to false
     };
 
     const handleGoogleSignIn = async () => {
         try {
             console.log('[DoctorLogin] 🔑 Google Sign-In: Starting OAuth flow');
-
-            const { error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: {
-                    redirectTo: `${window.location.origin}/auth/callback`,
-                },
-            });
-
-            if (error) {
-                toast({
-                    title: 'Error',
-                    description: error.message || 'Failed to sign in with Google',
-                    variant: 'destructive',
-                });
-            }
+            await signInWithGoogle();
         } catch (error: any) {
+            console.error('[DoctorLogin] ❌ Google sign in error:', error);
             toast({
                 title: 'Error',
                 description: error.message || 'Failed to sign in with Google',
@@ -134,7 +102,7 @@ export default function DoctorLogin() {
                 </h1>
 
                 <p className="text-gray-500 text-sm mt-1">
-                    Your Personal Health Companion
+                    Healthcare Provider Portal
                 </p>
             </motion.div>
 
@@ -155,14 +123,11 @@ export default function DoctorLogin() {
                     {/* Title and Subtitle */}
                     <div className="mb-8 text-center">
                         <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                            Doctor Sign In
-                        </h1>
-                        <p className="text-sm text-[#6B7785] mb-3">
-                            Access your patients and clinical timeline
-                        </p>
-                        <span className="inline-block text-xs px-3 py-1 rounded-full bg-cyan-100 text-cyan-700 font-medium">
                             Doctor Portal
-                        </span>
+                        </h1>
+                        <p className="text-sm text-[#6B7785]">
+                            Access your patients and manage healthcare records
+                        </p>
                     </div>
 
                     <form onSubmit={handleSubmit} className="space-y-5">
@@ -179,7 +144,7 @@ export default function DoctorLogin() {
                                 required
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                placeholder="doctor@email.com"
+                                placeholder="Enter your email"
                                 className="h-11 rounded-[10px] border-gray-200 placeholder:text-[#B5C4D1] transition-all duration-200 focus:border-[#00DDE0] focus:ring-2 focus:ring-[#00DDE0]/20"
                             />
                         </div>
@@ -225,7 +190,7 @@ export default function DoctorLogin() {
                             }}
                         >
                             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Sign in
+                            Sign in as Doctor
                         </Button>
                     </form>
 
@@ -267,9 +232,17 @@ export default function DoctorLogin() {
                         Sign in with Google
                     </Button>
 
-                    {/* Patient Login Link */}
+                    {/* Sign Up Link */}
                     <p className="mt-6 text-center text-sm text-gray-600">
-                        Not a doctor?{' '}
+                        Not a doctor yet?{' '}
+                        <a href="/signup" className="font-medium text-[#00DDE0] hover:text-[#00C4F0] transition-colors">
+                            Sign up
+                        </a>
+                    </p>
+
+                    {/* Link to Patient Login */}
+                    <p className="mt-4 text-center text-sm text-gray-600">
+                        Are you a patient?{' '}
                         <a href="/login" className="font-medium text-[#00DDE0] hover:text-[#00C4F0] transition-colors">
                             Patient login
                         </a>

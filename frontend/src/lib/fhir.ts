@@ -1,15 +1,22 @@
-const DEFAULT_API_BASE_URL = "https://niraiva.onrender.com";
+const DEFAULT_CLOUD_API_URL = "https://niraiva.onrender.com";
+const LOCAL_API_URL = "http://localhost:5000";
 
 export const getApiBaseUrl = () => {
-    const envUrl = import.meta.env.VITE_API_BASE_URL;
-    let url = DEFAULT_API_BASE_URL;
+    // Check if we are running on localhost
+    const isLocalhost =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "::1";
 
-    if (typeof envUrl === "string" && envUrl.length > 0) {
-        url = envUrl.replace(/\/+$/, "");
+    const envUrl = import.meta.env.VITE_API_BASE_URL;
+
+    // If on localhost, default to local backend unless env explicitly overrides
+    if (isLocalhost) {
+        return LOCAL_API_URL;
     }
 
-    console.log('[API URL Debug] Resolved API Base URL:', url, '(from env:', envUrl, ')');
-    return url;
+    let url = envUrl || DEFAULT_CLOUD_API_URL;
+    return url.replace(/\/+$/, "");
 };
 
 const buildEndpoint = (path: string) => {

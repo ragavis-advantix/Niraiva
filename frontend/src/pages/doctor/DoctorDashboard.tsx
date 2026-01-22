@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import DoctorTopBar from './components/DoctorTopBar';
-import PatientCard from './components/PatientCard';
-import AddPatientModal from './components/AddPatientModal';
-import StatsCard from './components/StatsCard';
+import DoctorTopBar from '@/apps/doctor/components/DoctorTopBar';
+import PatientCard from '@/apps/doctor/components/PatientCard';
+import AddPatientModal from '@/apps/doctor/components/AddPatientModal';
+import StatsCard from '@/apps/doctor/components/StatsCard';
 import { Plus, Users, Activity, TrendingUp } from 'lucide-react';
 
 interface Patient {
@@ -60,7 +60,7 @@ export default function DoctorDashboard() {
         const doctorId = doctor.id;
         console.log('Doctor ID resolved:', doctorId);
 
-        // 2. Query doctor_patient_links junction table with patient details
+        // 2. Query doctor_patient_links -> patients (source of truth for patient data)
         const { data, error } = await supabase
             .from('doctor_patient_links')
             .select(`
@@ -90,14 +90,15 @@ export default function DoctorDashboard() {
             const patientList = data
                 .map((row: any) => {
                     if (!row.patient) return null;
+                    const p = row.patient;
                     return {
-                        user_id: row.patient.id,
-                        name: row.patient.name,
-                        gender: row.patient.gender,
-                        dob: row.patient.dob,
-                        phone: row.patient.phone,
-                        chronic_conditions: row.patient.chronic_conditions,
-                        created_at: row.patient.created_at
+                        user_id: p.id,
+                        name: p.name || 'Unknown',
+                        gender: p.gender,
+                        dob: p.dob,
+                        phone: p.phone,
+                        chronic_conditions: p.chronic_conditions || [],
+                        created_at: p.created_at
                     };
                 })
                 .filter((p: any) => p !== null);
