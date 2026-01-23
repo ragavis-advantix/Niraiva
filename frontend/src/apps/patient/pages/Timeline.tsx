@@ -129,6 +129,7 @@ const Timeline = () => {
                             <TimelineEvent
                               key={event.id}
                               event={event}
+                              userId={user?.id}
                               isLast={index === eventsForDate.length - 1}
                               onOpenChat={() => handleOpenChat(event)}
                             />

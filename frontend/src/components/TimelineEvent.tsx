@@ -10,9 +10,10 @@ interface TimelineEventProps {
   event: any;
   isLast?: boolean;
   onOpenChat?: () => void;
+  userId?: string; // Patient ID for chat context
 }
 
-const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false, onOpenChat }) => {
+const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false, onOpenChat, userId }) => {
   const { openChat } = useChat();
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -28,23 +29,26 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false, on
   const category = event.event_type || 'note';
   const status = event.status || 'completed';
 
-  // FIX 4: "Ask AI About This" passes structured context, not text
+  // FIX 4: "Ask AI About This" passes structured context with userId for personalization
   const handleAskAI = () => {
     console.log('📍 TimelineEvent: Ask AI clicked, opening with structured context', {
       eventId: event.id,
+      userId,
       eventType: category,
       title: event.title,
       date: displayDate
     });
 
-    // Open chat with structured context
+    // Open chat with structured context - CRITICAL: Include userId so buildPatientContext works
     openChat({
       eventId: event.id,
+      userId, // CRITICAL: This enables buildPatientContext(patientId) to fetch medical history
       eventType: category,
       title: event.title,
       date: displayDate,
       context: {
         eventId: event.id,
+        userId,
         eventType: category,
         description: event.description,
         date: displayDate,

@@ -117,11 +117,14 @@ export const ChatbotModal: React.FC = () => {
                 }
             }
         } catch (error) {
-            console.error('Chat error:', error);
+            console.error('[ChatBot] Stream error:', error);
             setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, I'm having trouble responding. Please try again." }]);
         } finally {
             setLoading(false);
-            inputRef.current?.focus();
+            // Ensure input gets focus after response completes
+            setTimeout(() => {
+                inputRef.current?.focus();
+            }, 50);
         }
     };
 
@@ -225,8 +228,8 @@ export const ChatbotModal: React.FC = () => {
                             messages.map((msg, idx) => (
                                 <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-xs rounded-lg p-3 ${msg.role === 'user'
-                                            ? 'bg-teal-600 text-white'
-                                            : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                                        ? 'bg-teal-600 text-white'
+                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
                                         }`}>
                                         <p className="text-sm">{msg.content}</p>
                                     </div>
@@ -246,21 +249,21 @@ export const ChatbotModal: React.FC = () => {
                     {/* ===== INPUT AREA (ALWAYS ENABLED) ===== */}
                     <div className="border-t border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-slate-900 rounded-b-xl">
                         <div className="flex gap-2">
-                            {/* FIX 3: Input ALWAYS enabled, auto-focused */}
+                            {/* FIX 3: Input ALWAYS enabled and responsive - NEVER disable even while loading */}
                             <input
                                 ref={inputRef}
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
-                                onKeyPress={(e) => {
-                                    if (e.key === 'Enter' && input.trim()) {
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !e.shiftKey && input.trim() && !loading) {
+                                        e.preventDefault();
                                         handleSendMessage();
                                     }
                                 }}
                                 autoFocus
                                 placeholder="Ask about your reports..."
                                 className="flex-1 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm placeholder-gray-400 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition"
-                                disabled={loading}
                             />
                             <button
                                 onClick={handleSendMessage}
