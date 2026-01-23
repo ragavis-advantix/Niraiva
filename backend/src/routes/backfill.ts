@@ -90,4 +90,64 @@ router.post('/extract-events-from-existing-reports', async (req: Request, res: R
     }
 });
 
+/**
+ * POST /api/backfill/fix-timeline-dates
+ * 
+ * Re-processes all timeline events to extract and set proper clinical dates
+ * from their source reports. This fixes the grouping and sorting on the timeline.
+ */
+router.post('/fix-timeline-dates', async (req: Request, res: Response) => {
+    try {
+        const { extractClinicalDates, resolvePrimaryClinicialDate } = await import('../lib/clinicalDateExtraction');
+
+        console.log('🔄 [Backfill] Starting timeline date fix...');
+
+        // 1. Fetch all timeline events with their associated reports
+        const { data: events, error: fetchErr } = await supabase
+            .from('timeline_events')
+            .select('id, source_report_id, metadata, clinical_event_date, report_date, event_time');
+
+        if (fetchErr) throw fetchErr;
+
+        console.log(`📊 [Backfill] Found ${events?.length || 0} events to check`);
+
+        let updateCount = 0;
+
+        for (const event of (events || [])) {
+            const reportJson = event.metadata?.report_json || {};
+            const parsedText = typeof reportJson.text === 'string' ? reportJson.text : JSON.stringify(reportJson);
+
+            // Re-extract dates using improved logic
+            const extracted = extractClinicalDates(parsedText, reportJson);
+            const clinicalDate = resolvePrimaryClinicialDate(extracted);
+            const reportDate = extracted.reportDate || extracted.labDate;
+
+            // Only update if we found something new or different
+            if (clinicalDate || reportDate) {
+                const newEventTime = clinicalDate
+                    ? new Date(clinicalDate).toISOString()
+                    : (reportDate ? new Date(reportDate).toISOString() : event.event_time);
+
+                const { error: updateErr } = await supabase
+                    .from('timeline_events')
+                    .update({
+                        clinical_event_date: clinicalDate || event.clinical_event_date,
+                        report_date: reportDate || event.report_date,
+                        event_time: newEventTime
+                    })
+                    .eq('id', event.id);
+
+                if (!updateErr) updateCount++;
+            }
+        }
+
+        console.log(`✅ [Backfill] Fixed ${updateCount} timeline events`);
+        res.json({ success: true, fixed: updateCount });
+
+    } catch (err: any) {
+        console.error('❌ [Backfill] Date fix failed:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;

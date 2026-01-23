@@ -12,10 +12,25 @@ import { TimelineEvent } from '@/utils/healthData';
 
 /**
  * Resolve the primary display date for a timeline event
- * Uses fallback order: clinical > report > upload
+ * Uses fallback order: clinical > report > metadata nested dates > upload
  */
-export function getDisplayDate(event: TimelineEvent): string | null {
-    return event.clinical_event_date || event.report_date || event.upload_date || event.event_time || null;
+export function getDisplayDate(event: any): string | null {
+    // 1. Check top-level clinical date fields (if database was updated)
+    if (event.clinical_event_date) return event.clinical_event_date;
+    if (event.report_date) return event.report_date;
+
+    // 2. Check nested report_json metadata (where AI extracts dates)
+    const reportMetadata = event.metadata?.report_json?.metadata || event.metadata?.metadata;
+    if (reportMetadata) {
+        const nestedDate = reportMetadata.documentDate ||
+            reportMetadata.visitDate ||
+            reportMetadata.date ||
+            reportMetadata.testDate;
+        if (nestedDate) return nestedDate;
+    }
+
+    // 3. Last resorts
+    return event.date || event.upload_date || event.event_time || null;
 }
 
 /**

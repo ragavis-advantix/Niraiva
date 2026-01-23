@@ -152,11 +152,11 @@ function enhancedDetectIntent(question: string): {
 // NEW: Sanitize LLM response to remove markdown (Step 4)
 function sanitizeResponse(text: string): string {
     return text
-        .replace(/\*\*/g, "")       // Remove bold markers **
-        .replace(/\*\*/g, "")       // Remove italic markers *
-        .replace(/#{1,6}\s/g, "")   // Remove heading markers #
-        .replace(/`{1,3}/g, "")     // Remove code markers
-        .replace(/_{2,}/g, "")      // Remove underline/emphasis ___
+        .replace(/\*\*/g, "")       // Remove bold markers
+        .replace(/\*/g, "")        // Remove italic markers
+        .replace(/#{1,6}\s/g, "")   // Remove heading markers
+        .replace(/\`{1,3}/g, "")     // Remove code markers
+        .replace(/_{2,}/g, "")      // Remove underline/emphasis
         .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") // Remove markdown links, keep text
         .replace(/\n{3,}/g, "\n\n") // Remove extra paragraphs (keep double newlines)
         .trim();                     // Only trim edges, preserve internal spaces
@@ -232,7 +232,7 @@ export class ChatService {
             if (error) throw error;
             return session.id;
         } catch (err: any) {
-            console.error(`❌ [ChatService] getOrCreateSession failed:`, err.message);
+            console.error(`[Error] [ChatService] getOrCreateSession failed:`, err.message);
             return null;
         }
     }
@@ -248,11 +248,11 @@ export class ChatService {
             .single();
 
         if (eventErr || !event) {
-            console.error(`❌ [ChatContext] Timeline event not found:`, eventErr?.message);
+            console.error(`[Error] [ChatContext] Timeline event not found:`, eventErr?.message);
             throw new Error(`Invalid timeline event: ${eventErr?.message || 'Not found'}`);
         }
 
-        console.log(`✅ [ChatContext] Event found: "${event.title}", Source Report: ${event.source_report_id}`);
+        console.log(`[Success] [ChatContext] Event found: "${event.title}", Source Report: ${event.source_report_id}`);
 
         // 2. Try to get context from metadata first (faster, more reliable if Link is broken)
         let reportData = event.metadata?.report_json?.data || event.metadata?.report_json;
@@ -279,7 +279,7 @@ export class ChatService {
             return { event, context: null, history: [] };
         }
 
-        console.log(`✅ [ChatContext] Structured data bound. Parameters: ${reportData.parameters?.length || reportData.tests?.length || 0}`);
+        console.log(`[Success] [ChatContext] Structured data bound. Parameters: ${reportData.parameters?.length || reportData.tests?.length || 0}`);
 
         // Point 9 from user request: Confirm binding
         console.log("Chat context:", {
@@ -305,7 +305,7 @@ export class ChatService {
             .limit(5);
 
         if (historyErr) {
-            console.warn(`⚠️ [ChatService] Could not fetch report history:`, historyErr.message);
+            console.warn(`[Warn] [ChatService] Could not fetch report history:`, historyErr.message);
         }
 
         return { event, context, history: history || [] };
@@ -448,7 +448,7 @@ export class ChatService {
                 persistenceEnabled = false;
             }
         } catch (e: any) {
-            console.warn(`⚠️ [ChatService] Persistence disabled:`, e.message);
+            console.warn(`[Warn] [ChatService] Persistence disabled:`, e.message);
             persistenceEnabled = false;
         }
 
@@ -608,11 +608,11 @@ ${JSON.stringify(trendHistory, null, 2)}`;
 
         if (providedParameters && providedParameters.length > 0) {
             // Frontend sent parameters - use them directly
-            console.log(`✅ [ChatStream] Using parameters from frontend: ${providedParameters.length} values`);
+            console.log(`[Success] [ChatStream] Using parameters from frontend: ${providedParameters.length} values`);
             context = { parameters: providedParameters };
         } else {
             // Fallback only if frontend didn't send parameters
-            console.log(`⚠️ [ChatStream] No parameters from frontend, attempting to fetch...`);
+            console.log(`[Warn] [ChatStream] No parameters from frontend, attempting to fetch...`);
             const result = await this.buildMedicalContext(timelineEventId, patientId);
             event = result.event;
             context = result.context;
@@ -622,7 +622,7 @@ ${JSON.stringify(trendHistory, null, 2)}`;
         // GUARDRAIL: If still no parameters, respond safely
         if (!context || !context.parameters || context.parameters.length === 0) {
             const failsafeMsg = "I cannot access the detailed report information right now. Please try again in a moment.";
-            console.warn(`⚠️ [ChatStream] No parameters available - using fail-safe response`);
+            console.warn(`[Warn] [ChatStream] No parameters available - using fail-safe response`);
             yield { token: failsafeMsg, sessionId: currentSessionId, done: true };
             return;
         }
@@ -648,12 +648,12 @@ ${JSON.stringify(trendHistory, null, 2)}`;
 
         // FIX 1: FETCH COMPREHENSIVE PATIENT CONTEXT FROM MEDICAL HISTORY
         const patientContextSummary = await this.buildPatientContext(patientId);
-        console.log(`✅ [ChatStream] Patient context ready: ${patientContextSummary.length} chars`);
+        console.log(`[Success] [ChatStream] Patient context ready: ${patientContextSummary.length} chars`);
 
         // STEP 3: MEDICAL-GRADE SYSTEM PROMPT (with safety enforcement + conversational tone)
         let systemPrompt = `You are Niraiva, a calm and friendly medical assistant.
 
-🚨 CRITICAL RULES (MUST FOLLOW EVERY TIME):
+RULES (MUST FOLLOW EVERY TIME):
 1. ONLY reference the health parameters provided below.
 2. NEVER say values are normal if status = "warning" or "critical".
 3. If ANY warning values exist, you MUST acknowledge them clearly.
@@ -674,143 +674,140 @@ Be warm, conversational, and supportive. Personalize with patient's medical hist
 PATIENT PROFILE:
 Age: ${patientContext.patient.age || 'Unknown'}
 Gender: ${patientContext.patient.gender || 'Unknown'}
-Known conditions: ${patientContext.patient.known_conditions?.join(', ') || 'None'}
+KNOWN CONDITIONS: ${patientContext.patient.known_conditions?.join(', ') || 'None'}
 
-⚠️ VALUES NEEDING ATTENTION (${warningParameters.length}):
+ATTENTION: VALUES NEEDING ATTENTION (${warningParameters.length}):
 ${warningParameters.length > 0 ?
                 warningParameters.map((p: any) => `${p.name || p.parameter_name}: Status is ${p.status}`).join('\n')
                 : 'No abnormal values'
             }
 
 ${patientContextSummary}
+`;
 
         // IF MULTIPLE WARNINGS AND USER ASKS GENERAL "WHAT DOES THIS MEAN", ASK THEM TO CHOOSE
         if (warningParameters.length > 1 && enhancedIntent.type === "parameter_explanation" && !enhancedIntent.targetParameter) {
-            systemPrompt += `\n\nIMPORTANT: The patient has multiple results that need attention.Instead of explaining all of them, ask them which one they'd like to understand first. Be friendly about it.
-
-Example response:
-        "You have a couple of results that need attention - your hemoglobin and kidney values. Which one would you like me to explain first?"`;
+            systemPrompt += "\nIMPORTANT: The patient has multiple results that need attention. Instead of explaining all of them, ask them which one they'd like to understand first. Be friendly about it.";
         } else {
             // Add intent-specific guidance for single parameter or specific intent
             if (enhancedIntent.type === "normality_check") {
-                systemPrompt += `\nTask: Answer whether the results are normal.Be clear and direct in 1 - 2 sentences.`;
+                systemPrompt += "\nTask: Answer whether the results are normal. Be clear and direct in 1-2 sentences.";
             } else if (enhancedIntent.type === "next_steps") {
-                systemPrompt += `\nTask: Suggest 1 - 2 gentle, lifestyle - focused next steps.Do not prescribe.Keep it actionable.`;
+                systemPrompt += "\nTask: Suggest 1-2 gentle, lifestyle-focused next steps. Do not prescribe.";
             } else if (enhancedIntent.type === "cause_explanation") {
-                systemPrompt += `\nTask: Explain why this value is abnormal in plain language.Connect to daily life if possible.`;
+                systemPrompt += "\nTask: Explain why this value is abnormal in plain language. Connect to daily life.";
             } else if (enhancedIntent.type === "safety") {
-                systemPrompt += `\nTask: Reassure if safe, or suggest they talk to their doctor if needed.Be calm but clear.`;
+                systemPrompt += "\nTask: Reassure if safe, or suggest they talk to their doctor if needed.";
             } else if (enhancedIntent.type === "parameter_explanation") {
-                systemPrompt += `\nTask: Explain what this value measures and what it means for this patient's health. Keep it simple.`;
-            }
-}
-
-if (trendHistory) {
-    systemPrompt += `\n\nTrend Information for ${matchedParam.name || matchedParam.parameter_name}:
-${JSON.stringify(trendHistory, null, 2)}`;
-}
-
-const provider = trendHistory ? "Qwen" : "Mistral";
-console.log(`📡 [ChatStream] Selecting provider: ${provider} | Intent: ${enhancedIntent.type}`);
-
-let stream;
-try {
-    stream = await this.llmService.runLLMStream(provider, {
-        systemPrompt,
-        userPrompt: userQuestion,
-        temperature: 0.3
-    });
-} catch (err: any) {
-    console.error(`❌[ChatStream] LLM Stream initialization failed: `, err);
-            yield { token: `Sorry, I'm having trouble connecting to my AI processor (${provider}).`, sessionId: currentSessionId, done: true };
-    return;
-}
-
-console.log(`📡 [ChatStream] Stream started`);
-
-let fullContent = "";
-let buffer = "";
-
-// Convert stream to async iterator
-const reader = stream as any;
-
-try {
-    for await (const chunk of reader) {
-        const chunkStr = chunk.toString();
-        buffer += chunkStr;
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
-            const data = trimmed.slice(6);
-            if (data === '[DONE]') continue;
-
-            try {
-                const json = JSON.parse(data);
-                const token = json.choices[0]?.delta?.content || json.choices[0]?.text || "";
-                if (token) {
-                    fullContent += token;
-                            // 🔴 DO NOT SANITIZE INDIVIDUAL TOKENS - only sanitize final response
-                            // Sanitizing tokens breaks word spacing and kills spaces
-                            yield { token: token, sessionId: currentSessionId };
-                }
-            } catch (e) {
-                // Incomplete JSON or malformed
+                systemPrompt += "\nTask: Explain what this value measures and what it means for this patient's health.";
             }
         }
-    }
-} catch (streamErr: any) {
-    console.error(`❌ [ChatStream] Error during stream reading:`, streamErr);
+
+        if (trendHistory) {
+            systemPrompt += "\n\nTrend Information for " + (matchedParam.name || matchedParam.parameter_name) + ":\n" + JSON.stringify(trendHistory, null, 2);
+        }
+
+        const provider = trendHistory ? "Qwen" : "Mistral";
+        console.log("[ChatStream] Selecting provider: " + provider + " | Intent: " + enhancedIntent.type);
+
+        let stream;
+        try {
+            stream = await this.llmService.runLLMStream(provider, {
+                systemPrompt,
+                userPrompt: userQuestion,
+                temperature: 0.3
+            });
+        } catch (err: any) {
+            console.error("[ChatStream] LLM Stream initialization failed: ", err);
+            yield { token: "Sorry, I'm having trouble connecting to my AI processor (" + provider + ").", sessionId: currentSessionId, done: true };
+            return;
+        }
+
+        console.log("[ChatStream] Stream started");
+
+        let fullContent = "";
+        let buffer = "";
+
+        // Convert stream to async iterator
+        const reader = stream as any;
+
+        try {
+            for await (const chunk of reader) {
+                const chunkStr = chunk.toString();
+                buffer += chunkStr;
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+                    const data = trimmed.slice(6);
+                    if (data === '[DONE]') continue;
+
+                    try {
+                        const json = JSON.parse(data);
+                        const token = json.choices[0]?.delta?.content || json.choices[0]?.text || "";
+                        if (token) {
+                            fullContent += token;
+                            // DO NOT SANITIZE INDIVIDUAL TOKENS - only sanitize final response
+                            // Sanitizing tokens breaks word spacing and kills spaces
+                            yield { token: token, sessionId: currentSessionId };
+                        }
+                    } catch (e) {
+                        // Incomplete JSON or malformed
+                    }
+                }
+            }
+        } catch (streamErr: any) {
+            console.error(`[Error] [ChatStream] Error during stream reading: `, streamErr);
             yield { token: `\n\n[Communication with AI was interrupted]`, sessionId: currentSessionId };
-}
+        }
 
-console.log(`✅ [ChatStream] Stream finished. Tokens captured: ${fullContent.length}`);
+        console.log(`[Success] [ChatStream] Stream finished. Tokens captured: ${fullContent.length} `);
 
-// STEP 4: Final sanitization on complete response
-const sanitizedContent = sanitizeResponse(fullContent);
+        // STEP 4: Final sanitization on complete response
+        const sanitizedContent = sanitizeResponse(fullContent);
 
-// STEP 6: Generate dynamic follow-up questions based on intent and parameter
-const suggestedFollowUps = generateFollowUpQuestions(
-    enhancedIntent.targetParameter,
-    patientContext.patient.age,
-    patientContext.patient.known_conditions,
-    enhancedIntent.type
-);
+        // STEP 6: Generate dynamic follow-up questions based on intent and parameter
+        const suggestedFollowUps = generateFollowUpQuestions(
+            enhancedIntent.targetParameter,
+            patientContext.patient.age,
+            patientContext.patient.known_conditions,
+            enhancedIntent.type
+        );
 
-// STEP 8: Update response interface with new fields
-const responseMetadata = {
-    sessionId: currentSessionId,
-    currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
-    suggestedFollowUps,
-    disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
-};
+        // STEP 8: Update response interface with new fields
+        const responseMetadata = {
+            sessionId: currentSessionId,
+            currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
+            suggestedFollowUps,
+            disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
+        };
 
-// Final store
-if (sanitizedContent && persistenceEnabled && currentSessionId) {
-    try {
-        await supabase.from('chat_messages').insert({
-            session_id: currentSessionId,
-            role: 'assistant',
-            content: sanitizedContent,
-            llm_used: provider,
-            metadata: responseMetadata
-        });
-    } catch (saveErr: any) {
-        console.warn(`⚠️ [ChatStream] Failed to save assistant response:`, saveErr.message);
-    }
-}
+        // Final store
+        if (sanitizedContent && persistenceEnabled && currentSessionId) {
+            try {
+                await supabase.from('chat_messages').insert({
+                    session_id: currentSessionId,
+                    role: 'assistant',
+                    content: sanitizedContent,
+                    llm_used: provider,
+                    metadata: responseMetadata
+                });
+            } catch (saveErr: any) {
+                console.warn(`[Warn] [ChatStream] Failed to save assistant response: `, saveErr.message);
+            }
+        }
 
         // Yield final metadata
         yield {
-    token: "", // Empty token to signal end
-        sessionId: currentSessionId,
+            token: "", // Empty token to signal end
+            sessionId: currentSessionId,
             done: true,
-                suggestedFollowUps,
-                currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
-                    disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
-};
+            suggestedFollowUps,
+            currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
+            disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
+        };
     }
 }

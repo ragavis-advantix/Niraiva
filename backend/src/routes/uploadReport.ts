@@ -212,6 +212,15 @@ You are a medical document analyzer. Convert this text into EXACTLY one JSON fol
   "processingStatus": "success"
 }
 
+RULES FOR parameters in data:
+- ONLY include parameters that have actual values found in the document.
+- DO NOT include parameters where the value is "N/A", "unknown", or not mentioned.
+- EXPLICITLY extract all Vital Signs: Blood Pressure (Systolic and Diastolic), Heart Rate (Pulse), SpO2 (Oxygen Saturation), and Body Temperature.
+- Blood Pressure can be "120/80" or separate "Systolic BP" and "Diastolic BP".
+- ALWAYS extract diabetic markers if present: HbA1c, Fasting Blood Sugar, Post-Prandial Blood Sugar.
+- Capture Lipid profile: Total Cholesterol, LDL, HDL, Triglycerides.
+- If a value is mentioned but not explicitly labeled as normal/high, use your medical knowledge to determine the status (normal/warning/critical).
+
 RULES FOR eventInfo:
 - If the report is a blood test → eventType = "test", eventTitle = "Blood Test"
 - If the report is a prescription → eventType = "medication", eventTitle = "Medication Updated"
@@ -220,6 +229,7 @@ RULES FOR eventInfo:
 - If the report contains recommendations for follow-up or visits → eventType = "appointment", eventTitle = "Appointment"
 - eventTitle must be clear and human-readable
 - eventDescription must summarize key extracted information (e.g., "CBC, HbA1c levels", "BP 142/93, Pulse 95")
+
 
 TEXT:
 ${cleanedText}
@@ -516,21 +526,27 @@ ${cleanedText}
                         // Fallback title/description if missing
                         const title = eventInfo.eventTitle || `Report uploaded: ${file.originalname}`;
                         const description = eventInfo.eventDescription || `Extracted data — Blood: ${aiJSON?.data?.profile?.bloodType || 'N/A'}, Meds: ${aiJSON?.data?.medications?.length || 0}`;
-                        const eventType = eventInfo.eventType || 'test';
+                        // 🔑 CRITICAL: Use clinical date as the primary event time for sorting/grouping
+                        // If we found a clinical date, that SHOULD be the event time.
                         const eventStatus = eventInfo.status || 'completed';
-                        const eventTime = new Date().toISOString();
+                        const uploadTime = new Date().toISOString();
 
                         // 🔑 CRITICAL: Extract clinical event dates from parsed report
                         const parsedText = String(aiJSON?.text || '');
                         const extractedDates = extractClinicalDates(parsedText, aiJSON);
                         const clinicalEventDate = resolvePrimaryClinicialDate(extractedDates);
                         const reportDate = extractedDates.reportDate || extractedDates.labDate;
+                        const eventType = eventInfo.eventType || 'test';
+
+                        // 🔑 CRITICAL: Use clinical date as the primary event time for sorting/grouping
+                        const eventTime = clinicalEventDate
+                            ? new Date(clinicalEventDate).toISOString()
+                            : (reportDate ? new Date(reportDate).toISOString() : uploadTime);
 
                         // Log for debugging
                         logDateExtraction(reportData.id, extractedDates, clinicalEventDate, !clinicalEventDate);
-
                         debugLog(`📅 Creating timeline event: "${title}" (${eventType})`);
-                        debugLog(`📅 Dates - Clinical: ${clinicalEventDate}, Report: ${reportDate}, Upload: ${eventTime}`);
+                        debugLog(`📅 Dates - Clinical: ${clinicalEventDate}, Report: ${reportDate}, Upload: ${uploadTime}`);
 
                         const { error: timelineError } = await supabaseAdmin.from('timeline_events').insert([{
                             patient_id: user.id,
@@ -540,10 +556,9 @@ ${cleanedText}
                             status: eventStatus,
                             event_time: eventTime,
                             source_report_id: reportData.id,
-                            // NEW: Add clinical event dates for proper timeline ordering
                             clinical_event_date: clinicalEventDate,
                             report_date: reportDate,
-                            upload_date: new Date(eventTime),
+                            upload_date: new Date(uploadTime),
                             metadata: { report_json: aiJSON }
                         }]);
 

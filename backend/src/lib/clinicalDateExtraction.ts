@@ -22,44 +22,75 @@ interface ExtractedClinicalDates {
  * Extract clinical dates from parsed report text/JSON
  */
 export function extractClinicalDates(parsedText: string, parsedJson?: any): ExtractedClinicalDates {
-    const extractedText = parsedJson ? JSON.stringify(parsedJson) : parsedText;
+    // 1. Try to get dates directly from structured JSON if available
+    const json = parsedJson || {};
+    const metadata = json.metadata || {};
+    const eventInfo = json.eventInfo || {};
+    const data = json.data || {};
+    const profile = data.profile || {};
+
+    const structuredDates: ExtractedClinicalDates = {
+        visitDate: metadata.documentDate || metadata.visitDate || null,
+        testDate: metadata.testDate || null,
+        prescriptionDate: metadata.prescriptionDate || null,
+        labDate: metadata.labDate || null,
+        dischargeDate: metadata.dischargeDate || null,
+        reportDate: metadata.documentDate || metadata.reportDate || null
+    };
+
+    // If we already have structured dates, normalize them and return
+    const hasAnyStructured = Object.values(structuredDates).some(v => v !== null);
+    if (hasAnyStructured) {
+        return {
+            visitDate: structuredDates.visitDate ? normalizeDate(structuredDates.visitDate) : null,
+            testDate: structuredDates.testDate ? normalizeDate(structuredDates.testDate) : null,
+            prescriptionDate: structuredDates.prescriptionDate ? normalizeDate(structuredDates.prescriptionDate) : null,
+            labDate: structuredDates.labDate ? normalizeDate(structuredDates.labDate) : null,
+            dischargeDate: structuredDates.dischargeDate ? normalizeDate(structuredDates.dischargeDate) : null,
+            reportDate: structuredDates.reportDate ? normalizeDate(structuredDates.reportDate) : null
+        };
+    }
+
+    // 2. Fallback to regex-based extraction from text
+    const extractedText = parsedText || JSON.stringify(json);
 
     return {
         visitDate: extractDateWithPatterns(extractedText, [
-            /Date of Visit[:\s]+(.+?)[\n,]/i,
-            /Consultation Date[:\s]+(.+?)[\n,]/i,
-            /Visit Date[:\s]+(.+?)[\n,]/i,
-            /Date[:\s]+(.*(?:visit|consultation).*?)[\n,]/i,
+            /Date of Visit[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Consultation Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Visit Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Date[:\s\\"]+(.*(?:visit|consultation).*?)[\\"\n,]/i,
         ]),
 
         testDate: extractDateWithPatterns(extractedText, [
-            /Test Date[:\s]+(.+?)[\n,]/i,
-            /Date of Test[:\s]+(.+?)[\n,]/i,
-            /Specimen Date[:\s]+(.+?)[\n,]/i,
-            /Collection Date[:\s]+(.+?)[\n,]/i,
+            /Test Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Date of Test[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Specimen Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Collection Date[:\s\\"]+(.+?)[\\"\n,]/i,
         ]),
 
         prescriptionDate: extractDateWithPatterns(extractedText, [
-            /Prescription Date[:\s]+(.+?)[\n,]/i,
-            /Date Prescribed[:\s]+(.+?)[\n,]/i,
-            /Rx Date[:\s]+(.+?)[\n,]/i,
+            /Prescription Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Date Prescribed[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Rx Date[:\s\\"]+(.+?)[\\"\n,]/i,
         ]),
 
         labDate: extractDateWithPatterns(extractedText, [
-            /Lab Date[:\s]+(.+?)[\n,]/i,
-            /Laboratory Report Date[:\s]+(.+?)[\n,]/i,
-            /Test Report Date[:\s]+(.+?)[\n,]/i,
-            /Report Date[:\s]+(.+?)[\n,]/i,
+            /Lab Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Laboratory Report Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Test Report Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Report Date[:\s\\"]+(.+?)[\\"\n,]/i,
         ]),
 
         dischargeDate: extractDateWithPatterns(extractedText, [
-            /Discharge Date[:\s]+(.+?)[\n,]/i,
-            /Date of Discharge[:\s]+(.+?)[\n,]/i,
-            /Discharged[:\s]+(.+?)[\n,]/i,
+            /Discharge Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Date of Discharge[:\s\\"]+(.+?)[\\"\n,]/i,
+            /Discharged[:\s\\"]+(.+?)[\\"\n,]/i,
         ]),
 
         reportDate: extractDateWithPatterns(extractedText, [
-            /Report Date[:\s]+(.+?)[\n,]/i,
+            /Report Date[:\s\\"]+(.+?)[\\"\n,]/i,
+            /"Date"[:\s\\"]+(.+?)[\\"\n,]/i,
             /Date[:\s]+(.+?)[\n,]/i,
         ]),
     };

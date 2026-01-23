@@ -333,6 +333,28 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                                 Informational only. Not a medical diagnosis.
                             </p>
                         </div>
+
+                        {/* Input (Manual Entry) */}
+                        <div className="p-4 bg-white border-t border-slate-100 flex items-center gap-2">
+                            <input
+                                type="text"
+                                placeholder="Ask about this report..."
+                                className="flex-1 bg-slate-50 border-none px-4 py-2 rounded-xl text-sm font-medium focus:ring-2 focus:ring-niraiva-500/20"
+                                value={inputValue}
+                                onChange={(e) => setInputValue(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                                disabled={isLoading}
+                                autoFocus
+                            />
+                            <Button
+                                size="icon"
+                                className="bg-niraiva-600 hover:bg-niraiva-700 rounded-xl"
+                                onClick={() => handleSend()}
+                                disabled={isLoading || !inputValue.trim()}
+                            >
+                                <Send className="h-4 w-4" />
+                            </Button>
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -441,7 +463,7 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                                 size="icon"
                                 className="bg-niraiva-600 hover:bg-niraiva-700 rounded-xl"
                                 onClick={() => handleSend()}
-                                disabled={isLoading}
+                                disabled={isLoading || !inputValue.trim()}
                             >
                                 <Send className="h-4 w-4" />
                             </Button>

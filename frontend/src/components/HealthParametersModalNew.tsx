@@ -18,7 +18,7 @@ interface HealthParametersModalProps {
 interface HealthParameter {
     id: string;
     name: string;
-    value: number | null;
+    value: number | string | null;
     unit: string;
     status: 'normal' | 'warning' | 'critical';
     measured_at: string;
@@ -251,7 +251,7 @@ const StatusPill = ({ status }: { status: 'normal' | 'warning' | 'critical' }) =
 
 const HealthParameterCard = ({ param }: { param: HealthParameter }) => {
     const interpretation = getParameterInterpretation(param.name, param.status);
-    const isValid = param.value !== null && !isNaN(param.value);
+    const isValid = param.value !== null && !isNaN(Number(param.value));
 
     const statusColors = {
         normal: 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800',
@@ -280,7 +280,7 @@ const HealthParameterCard = ({ param }: { param: HealthParameter }) => {
             <div className="mb-3">
                 <div className="flex items-baseline gap-1">
                     <span className="text-3xl font-bold text-gray-900 dark:text-white">
-                        {isValid ? param.value : 'N/A'}
+                        {isValid ? param.value : (param.value || 'N/A')}
                     </span>
                     {isValid && param.unit && (
                         <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">
@@ -289,7 +289,7 @@ const HealthParameterCard = ({ param }: { param: HealthParameter }) => {
                     )}
                 </div>
 
-                {!isValid && (
+                {!isValid && !param.value && (
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         Data not available
                     </p>
@@ -297,7 +297,7 @@ const HealthParameterCard = ({ param }: { param: HealthParameter }) => {
             </div>
 
             {/* Patient-Friendly Interpretation */}
-            {interpretation && (
+            {interpretation && interpretation !== 'Normal' && (
                 <div className={cn(
                     'p-3 rounded-lg text-xs leading-relaxed border-l-2',
                     param.status === 'warning' ? 'bg-amber-100/30 border-amber-400 text-amber-900 dark:bg-amber-900/20 dark:text-amber-200' :
@@ -334,6 +334,8 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
     onOpenChat,
 }) => {
     const [parameters, setParameters] = useState<HealthParameter[]>([]);
+    const [medications, setMedications] = useState<any[]>([]);
+    const [conditions, setConditions] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [groupedParams, setGroupedParams] = useState<ParameterGroup[]>([]);
@@ -364,17 +366,14 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
                 console.log('🔍 Loading parameters for:', { eventTitle, eventDate, hasMetadata: !!metadata });
 
                 // PRIORITY 1: Try metadata (parsed report data)
-                if (metadata?.report_json?.data?.parameters) {
-                    console.log('📦 Found parameters in metadata');
-                    const params = metadata.report_json.data.parameters;
+                if (metadata?.report_json?.data) {
+                    console.log('📦 Found experimental data in metadata');
+                    const data = metadata.report_json.data;
+                    const params = data.parameters || [];
+                    const meds = data.medications || [];
+                    const conds = data.conditions || [];
 
-                    // Defensive: ensure array
-                    if (!Array.isArray(params)) {
-                        console.warn('⚠️ metadata.report_json.data.parameters is not an array');
-                        throw new Error('Invalid parameter format in metadata');
-                    }
-
-                    const mappedParams: HealthParameter[] = params
+                    const mappedParams: HealthParameter[] = (Array.isArray(params) ? params : [])
                         .map((p: any, idx: number) => {
                             // Normalize status
                             let normalizedStatus = p.status || p.interpretation || 'normal';
@@ -385,10 +384,20 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
                                 normalizedStatus = 'warning';
                             }
 
+                            // Resolve value - keep strings if they aren't 'N/A'
+                            let resolvedValue: number | string | null = p.value;
+                            if (typeof p.value === 'string') {
+                                if (p.value.toUpperCase() === 'N/A' || p.value === '') {
+                                    resolvedValue = null;
+                                } else if (!isNaN(Number(p.value))) {
+                                    resolvedValue = Number(p.value);
+                                }
+                            }
+
                             return {
                                 id: p.id || `meta-${idx}`,
                                 name: p.name || 'Unknown',
-                                value: typeof p.value === 'number' ? p.value : (p.value ? parseFloat(String(p.value)) : null),
+                                value: resolvedValue,
                                 unit: p.unit || '',
                                 status: normalizedStatus as 'normal' | 'warning' | 'critical',
                                 measured_at: metadata.report_json.metadata?.documentDate || eventDate,
@@ -396,18 +405,23 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
                                 interpretation: p.interpretation,
                             };
                         })
-                        .filter(p => p.name !== 'Unknown' && p.value !== null); // Filter invalid
+                        .filter(p =>
+                            p.name !== 'Unknown' &&
+                            p.value !== null &&
+                            String(p.value).toUpperCase() !== 'N/A'
+                        );
 
-                    if (mappedParams.length > 0) {
-                        console.log(`✅ Loaded ${mappedParams.length} parameters from metadata`);
-                        if (isMounted) {
-                            setParameters(mappedParams);
-                            setGroupedParams(groupParameters(mappedParams));
-                            setStatusSummary(getStatusSummary(mappedParams));
-                        }
-                        return; // Success - exit
-                    } else {
-                        console.warn('⚠️ Metadata parameters empty after filtering, trying database');
+                    if (isMounted) {
+                        setParameters(mappedParams);
+                        setMedications(Array.isArray(meds) ? meds : []);
+                        setConditions(Array.isArray(conds) ? conds : []);
+                        setGroupedParams(groupParameters(mappedParams));
+                        setStatusSummary(getStatusSummary(mappedParams));
+                    }
+
+                    if (mappedParams.length > 0 || (Array.isArray(meds) && meds.length > 0) || (Array.isArray(conds) && conds.length > 0)) {
+                        setLoading(false);
+                        return;
                     }
                 }
 
@@ -492,12 +506,14 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
                                         Health Parameters
                                     </h2>
                                     <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                        {eventTitle} • {new Date(eventDate).toLocaleDateString('en-US', {
-                                            weekday: 'short',
-                                            month: 'short',
-                                            day: 'numeric',
-                                            year: 'numeric',
-                                        })}
+                                        {eventTitle} • {(!eventDate || isNaN(new Date(eventDate).getTime()))
+                                            ? 'Date unknown'
+                                            : new Date(eventDate).toLocaleDateString('en-US', {
+                                                weekday: 'short',
+                                                month: 'short',
+                                                day: 'numeric',
+                                                year: 'numeric',
+                                            })}
                                     </p>
                                 </div>
 
@@ -544,45 +560,106 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
                                             Check browser console for details
                                         </p>
                                     </div>
-                                ) : parameters.length === 0 ? (
+                                ) : (parameters.length === 0 && medications.length === 0 && conditions.length === 0) ? (
                                     <div className="flex flex-col items-center justify-center py-16 px-6">
                                         <AlertCircle className="w-12 h-12 text-gray-400 dark:text-gray-600 mb-4" />
                                         <p className="text-gray-600 dark:text-gray-400 text-center font-medium">
-                                            No health parameters found for this date.
+                                            No detailed medical data found for this report.
                                         </p>
                                         <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
                                             {eventDate}
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className="px-6 pb-6 space-y-6">
-                                        {/* GROUPED PARAMETERS */}
-                                        {groupedParams.map((group, groupIdx) => (
-                                            <motion.section
-                                                key={group.group}
-                                                initial={{ opacity: 0, y: 20 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                transition={{ delay: groupIdx * 0.05 }}
-                                            >
-                                                {/* Section Header */}
-                                                <div className="mb-4">
-                                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                                                        <span className="text-2xl">{group.icon}</span>
-                                                        {group.group}
-                                                    </h3>
-                                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                                        {group.description}
-                                                    </p>
-                                                </div>
-
-                                                {/* TWO-COLUMN GRID */}
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    {group.parameters.map((param) => (
-                                                        <HealthParameterCard key={param.id} param={param} />
+                                    <div className="px-6 pb-6 space-y-8">
+                                        {/* MEDICATIONS SECTION (IF ANY) */}
+                                        {medications.length > 0 && (
+                                            <section>
+                                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
+                                                    <span className="text-2xl">💊</span>
+                                                    Medications
+                                                </h3>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    {medications.map((med, i) => (
+                                                        <Card key={i} className="p-4 border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <p className="font-bold text-slate-900 dark:text-white">{med.name}</p>
+                                                                    <p className="text-sm text-slate-600 dark:text-slate-400">{med.dosage} • {med.frequency}</p>
+                                                                </div>
+                                                                {med.startDate && (
+                                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                                        Start: {med.startDate}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </Card>
                                                     ))}
                                                 </div>
-                                            </motion.section>
-                                        ))}
+                                            </section>
+                                        )}
+
+                                        {/* CONDITIONS SECTION (IF ANY) */}
+                                        {conditions.length > 0 && (
+                                            <section>
+                                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
+                                                    <span className="text-2xl">🏥</span>
+                                                    Clinical Conditions
+                                                </h3>
+                                                <div className="grid grid-cols-1 gap-4">
+                                                    {conditions.map((cond, i) => (
+                                                        <Card key={i} className="p-4 border-blue-100 dark:border-blue-900/30 bg-blue-50/30 dark:bg-blue-900/10">
+                                                            <div className="flex justify-between items-center">
+                                                                <div>
+                                                                    <p className="font-bold text-slate-900 dark:text-white">{cond.name}</p>
+                                                                    <p className="text-sm text-slate-600 dark:text-slate-400">Status: {cond.currentStatus || 'Noted'}</p>
+                                                                </div>
+                                                                <span className={cn(
+                                                                    "px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest",
+                                                                    cond.severity === 'severe' ? "bg-red-100 text-red-700" :
+                                                                        cond.severity === 'moderate' ? "bg-amber-100 text-amber-700" :
+                                                                            "bg-green-100 text-green-700"
+                                                                )}>
+                                                                    {cond.severity || 'mild'}
+                                                                </span>
+                                                            </div>
+                                                        </Card>
+                                                    ))}
+                                                </div>
+                                            </section>
+                                        )}
+
+                                        {/* GROUPED PARAMETERS */}
+                                        {groupedParams.length > 0 && (
+                                            <div className="space-y-8">
+                                                {groupedParams.map((group, groupIdx) => (
+                                                    <motion.section
+                                                        key={group.group}
+                                                        initial={{ opacity: 0, y: 20 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        transition={{ delay: groupIdx * 0.05 }}
+                                                    >
+                                                        {/* Section Header */}
+                                                        <div className="mb-4">
+                                                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                                                                <span className="text-2xl">{group.icon}</span>
+                                                                {group.group}
+                                                            </h3>
+                                                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                                                {group.description}
+                                                            </p>
+                                                        </div>
+
+                                                        {/* TWO-COLUMN GRID */}
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            {group.parameters.map((param) => (
+                                                                <HealthParameterCard key={param.id} param={param} />
+                                                            ))}
+                                                        </div>
+                                                    </motion.section>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -600,7 +677,11 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
                                         console.log('🔍 Ask AI About This clicked', { onOpenChat: !!onOpenChat });
                                         if (onOpenChat) {
                                             console.log('✅ Calling onOpenChat with parameters');
-                                            onOpenChat();
+                                            onOpenChat({
+                                                eventTitle,
+                                                eventDate,
+                                                parameters
+                                            });
                                         } else {
                                             console.warn('❌ onOpenChat is undefined');
                                         }

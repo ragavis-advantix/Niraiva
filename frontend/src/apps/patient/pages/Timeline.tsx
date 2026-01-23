@@ -115,7 +115,7 @@ const Timeline = () => {
                     {Array.from(groupTimelineByDate(filteredEvents).entries()).map(([dateStr, eventsForDate]) => (
                       <div key={dateStr}>
                         {/* Date Header */}
-                        <div className="flex items-center gap-3 mb-6 sticky top-24 bg-[#F8FAFC] dark:bg-gray-950 py-2 z-10">
+                        <div className="flex items-center gap-3 mb-6 bg-[#F8FAFC] dark:bg-gray-950 py-2">
                           <CalendarIcon className="w-5 h-5 text-niraiva-600" />
                           <h2 className="text-sm font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">
                             {formatTimelineDate({ event_time: dateStr } as any, 'EEEE, MMMM dd, yyyy')}
