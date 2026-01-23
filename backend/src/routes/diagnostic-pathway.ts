@@ -94,8 +94,19 @@ router.get('/:patientId/summary', async (req: Request, res: Response) => {
 
         // Deduplicate parameters (keep latest per parameter name)
         const paramMap = new Map<string, any>();
+        const parameterTrends: Record<string, any[]> = {};
+
         allParameters.forEach(param => {
             const key = (param.name || param.parameter_name || '').toLowerCase();
+
+            // Build trends
+            if (!parameterTrends[key]) parameterTrends[key] = [];
+            parameterTrends[key].push({
+                value: param.value,
+                status: param.status || param.interpretation,
+                date: param.recorded_at
+            });
+
             if (!paramMap.has(key) || new Date(param.recorded_at) > new Date(paramMap.get(key).recorded_at)) {
                 paramMap.set(key, param);
             }
@@ -119,8 +130,14 @@ router.get('/:patientId/summary', async (req: Request, res: Response) => {
             }
         });
 
+        // Sort trends by date
+        Object.keys(parameterTrends).forEach(key => {
+            parameterTrends[key].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        });
+
         return res.json({
             parameters: Array.from(paramMap.values()),
+            parameterTrends,
             medications: Array.from(medMap.values()),
             conditions: Array.from(condMap.values()),
             treatments: treatmentNotes,
