@@ -11,12 +11,8 @@
   publish = "dist"
   
   # Set environment variables at build time
-  environment = { NODE_ENV = "production" }
-
-# Secrets scanning configuration
-# VITE_SUPABASE_* are safe to expose in frontend bundle - security is enforced via RLS policies
-[build.environment]
-  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY"
+  # VITE_SUPABASE_* are safe to expose in frontend bundle - security is enforced via RLS policies
+  environment = { NODE_ENV = "production", SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY" }
 
 # SPA routing: redirect all non-matching routes to index.html
 [[redirects]]
