@@ -66,7 +66,8 @@ export const useDiagnosticPathway = (patientId?: string, condition?: string | nu
                     throw new Error('No auth token available');
                 }
 
-                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                const { getApiBaseUrl } = await import('@/lib/fhir');
+                const apiUrl = getApiBaseUrl();
                 const query = condition ? `?conditionFilter=${encodeURIComponent(condition)}` : '';
                 const response = await fetch(
                     `${apiUrl}/api/diagnostic-pathway/${patientId}${query}`,

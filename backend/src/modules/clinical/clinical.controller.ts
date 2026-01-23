@@ -41,7 +41,7 @@ export const clinicalController = {
                 return res.status(400).json({ error: 'records must be an array' });
             }
 
-            const results = [];
+            const results: Array<{ success: boolean; record?: any; error?: string }> = [];
             for (const recordData of records) {
                 try {
                     // TODO: Handle file uploads in bulk

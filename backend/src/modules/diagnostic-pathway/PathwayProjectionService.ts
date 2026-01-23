@@ -46,7 +46,7 @@ export class PathwayProjectionService {
         }
 
         // 3. Map steps to status
-        const projectedSteps = template.steps.map(step => {
+        const projectedSteps = template.steps.map((step: PathwayStep) => {
             // Find ALL matching events for this step
             const matches = events.filter(e => {
                 const name = normalize(e.event_name);
@@ -55,7 +55,7 @@ export class PathwayProjectionService {
             });
 
             // Determine status
-            let status: PathwayStep['status'] = 'pending';
+            let status: 'pending' | 'completed' | 'current' | 'warning' = 'pending';
             let usageEvent = null;
 
             if (matches.length > 0) {
@@ -74,7 +74,7 @@ export class PathwayProjectionService {
 
             return {
                 ...step,
-                status,
+                status: status as 'pending' | 'completed' | 'current' | 'warning',
                 matchedEvent: usageEvent, // Attach actual patient data
                 allMatches: matches
             };
@@ -83,7 +83,10 @@ export class PathwayProjectionService {
         // 4. Determine 'current' step (first pending one)
         const firstPendingIndex = projectedSteps.findIndex(s => s.status === 'pending');
         if (firstPendingIndex !== -1) {
-            projectedSteps[firstPendingIndex].status = 'current';
+            projectedSteps[firstPendingIndex] = {
+                ...projectedSteps[firstPendingIndex],
+                status: 'current' as const
+            };
         }
 
         return {

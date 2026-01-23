@@ -66,7 +66,8 @@ export default function AuthCallback() {
                 } else {
                     // NIRIAVA REQUIREMENT: Bootstrap patient record
                     console.log('[AuthCallback] 🚀 Bootstrapping patient record...');
-                    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+                    const { getApiBaseUrl } = await import('@/lib/fhir');
+                    const apiBase = getApiBaseUrl();
                     try {
                         const bootstrapRes = await fetch(`${apiBase}/api/auth/bootstrap-patient`, {
                             method: 'POST',

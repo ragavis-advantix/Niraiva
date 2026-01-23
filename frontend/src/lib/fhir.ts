@@ -8,15 +8,22 @@ export const getApiBaseUrl = () => {
         window.location.hostname === "127.0.0.1" ||
         window.location.hostname === "::1";
 
+    // 1. Check environment variable first (VITE_API_BASE_URL)
     const envUrl = import.meta.env.VITE_API_BASE_URL;
+    if (envUrl) {
+        console.log("[getApiBaseUrl] Using VITE_API_BASE_URL:", envUrl);
+        return envUrl.replace(/\/+$/, "");
+    }
 
-    // If on localhost, default to local backend unless env explicitly overrides
+    // 2. If on localhost, use local backend
     if (isLocalhost) {
+        console.log("[getApiBaseUrl] Using local backend:", LOCAL_API_URL);
         return LOCAL_API_URL;
     }
 
-    let url = envUrl || DEFAULT_CLOUD_API_URL;
-    return url.replace(/\/+$/, "");
+    // 3. Default to production
+    console.log("[getApiBaseUrl] Using production backend:", DEFAULT_CLOUD_API_URL);
+    return DEFAULT_CLOUD_API_URL;
 };
 
 const buildEndpoint = (path: string) => {

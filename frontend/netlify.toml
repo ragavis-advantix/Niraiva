@@ -1,4 +1,47 @@
+# ============================================
+# Netlify Configuration for Niraiva Frontend
+# ============================================
+
+# Build settings
+[build]
+  # Command to build the frontend
+  command = "npm run build"
+  
+  # Directory containing the built static files
+  publish = "dist"
+  
+  # Set environment variables at build time
+  environment = { NODE_ENV = "production" }
+
+# SPA routing: redirect all non-matching routes to index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# ============================================
+# Environment Variables for Netlify
+# ============================================
+# Set these in Netlify UI Dashboard > Site settings > Build & deploy > Environment
+# OR define them below if using build-specific env
+[context.production.environment]
+  VITE_API_BASE_URL = "https://niraiva.onrender.com"
+  VITE_SUPABASE_URL = "${VITE_SUPABASE_URL}"
+  VITE_SUPABASE_ANON_KEY = "${VITE_SUPABASE_ANON_KEY}"
+
+[context.develop.environment]
+  VITE_API_BASE_URL = "http://localhost:5000"
+  VITE_SUPABASE_URL = "${VITE_SUPABASE_URL}"
+  VITE_SUPABASE_ANON_KEY = "${VITE_SUPABASE_ANON_KEY}"
+
+# ============================================
+# Headers Configuration
+# ============================================
+# Add security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

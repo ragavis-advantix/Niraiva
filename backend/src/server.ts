@@ -24,11 +24,17 @@ import timelineRouter from "./modules/timeline/timeline.routes";
 const app = express();
 
 const port = process.env.PORT ? Number(process.env.PORT) : 5000;
+
+// Environment-aware CORS configuration
 const allowedOrigins = [
-    "https://695a9db4562490a60c06fb56--niriava.netlify.app",
-    "https://niriava.netlify.app",
+    // Local development
     "http://localhost:5173",
     "http://localhost:3000",
+    // Production - Netlify
+    "https://niriava.netlify.app",
+    // Legacy/preview builds
+    "https://695a9db4562490a60c06fb56--niriava.netlify.app",
+    // Fallback (if needed)
     "https://niraiva-app.vercel.app",
 ];
 
@@ -73,19 +79,23 @@ app.use((req, res, next) => {
     }
 
     // Track response
-    const originalEnd = res.end;
+    const originalEnd = res.end.bind(res);
     res.end = function (...args: any[]) {
         const duration = Date.now() - startTime;
         console.log(`📤 [${requestId}] <<< ${res.statusCode} (${duration}ms)`);
-        originalEnd.apply(res, args);
-    };
+        return originalEnd(...args);
+    } as any;
 
     next();
 });
 
-// Base ok route
+// Health check endpoints
 app.get("/", (_req, res) => {
-    res.send("Niraiva API Running");
+    res.json({
+        status: "ok",
+        service: "Niraiva Backend",
+        timestamp: new Date().toISOString(),
+    });
 });
 
 app.get("/test-cors", (_req, res) => {
@@ -174,7 +184,11 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 app.listen(port, () => {
-    console.log(`🚀 Backend running on http://localhost:${port}`);
+    const isProduction = process.env.NODE_ENV === "production";
+    const url = isProduction
+        ? `https://niraiva.onrender.com`
+        : `http://localhost:${port}`;
+    console.log(`🚀 Niraiva Backend running on ${url} (PORT=${port}, ENV=${process.env.NODE_ENV || "development"})`);
 });
 
 export default app;

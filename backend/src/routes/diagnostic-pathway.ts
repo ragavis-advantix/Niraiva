@@ -334,7 +334,12 @@ router.get('/:patientId/event/:eventId', async (req: Request, res: Response) => 
         }
 
         // Fetch related report if source_report_id exists
-        let relatedReport = null;
+        let relatedReport: {
+            id: any;
+            report_type: any;
+            parsed_json: any;
+            created_at: any;
+        } | null = null;
         if (event.source_report_id) {
             const { data: report } = await supabase
                 .from('parsed_reports')
