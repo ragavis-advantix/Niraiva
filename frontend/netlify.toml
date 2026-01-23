@@ -22,17 +22,14 @@
 # ============================================
 # Environment Variables for Netlify
 # ============================================
-# Set these in Netlify UI Dashboard > Site settings > Build & deploy > Environment
-# OR define them below if using build-specific env
-[context.production.environment]
-  VITE_API_BASE_URL = "https://niraiva.onrender.com"
-  VITE_SUPABASE_URL = "${VITE_SUPABASE_URL}"
-  VITE_SUPABASE_ANON_KEY = "${VITE_SUPABASE_ANON_KEY}"
-
-[context.develop.environment]
-  VITE_API_BASE_URL = "http://localhost:5000"
-  VITE_SUPABASE_URL = "${VITE_SUPABASE_URL}"
-  VITE_SUPABASE_ANON_KEY = "${VITE_SUPABASE_ANON_KEY}"
+# IMPORTANT: Set these in Netlify UI Dashboard
+# Path: Site settings > Build & deploy > Environment variables
+# Add these variables:
+#   - VITE_API_BASE_URL: https://niraiva.onrender.com (production)
+#   - VITE_SUPABASE_URL: Your Supabase project URL
+#   - VITE_SUPABASE_ANON_KEY: Your Supabase anonymous key
+#
+# For develop/preview contexts, override VITE_API_BASE_URL to http://localhost:5000
 
 # ============================================
 # Headers Configuration
