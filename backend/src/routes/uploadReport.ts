@@ -212,6 +212,12 @@ You are a medical document analyzer. Convert this text into EXACTLY one JSON fol
   "processingStatus": "success"
 }
 
+RULES FOR DATA EXTRACTION:
+- ONLY include items (parameters, medications, conditions) that have actual, meaningful names found in the document.
+- DO NOT return placeholder text like ".", "-", "N/A", or "Unknown" in names or values.
+- IF a category (like medications) is not mentioned in the document, return an EMPTY ARRAY []. 
+- DO NOT create dummy entries.
+
 RULES FOR parameters in data:
 - ONLY include parameters that have actual values found in the document.
 - EXPLICITLY extract all Vital Signs: Blood Pressure (Systolic and Diastolic), Heart Rate (Pulse), SpO2 (Oxygen Saturation), and Body Temperature.

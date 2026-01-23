@@ -406,20 +406,32 @@ const HealthParametersModal: React.FC<HealthParametersModalProps> = ({
                             };
                         })
                         .filter(p =>
+                            p.name &&
                             p.name !== 'Unknown' &&
+                            p.name.trim().length > 1 &&
+                            !/^[.\-_]+$/.test(p.name.trim()) &&
                             p.value !== null &&
                             String(p.value).toUpperCase() !== 'N/A'
                         );
 
+                    // Clean up medications and conditions to remove placeholder data (like dots or empty strings)
+                    const cleanMeds = (Array.isArray(meds) ? meds : []).filter(m =>
+                        m.name && m.name.trim().length > 1 && !/^[.\-_]+$/.test(m.name.trim())
+                    );
+                    const cleanConds = (Array.isArray(conds) ? conds : []).filter(c => {
+                        const name = typeof c === 'string' ? c : c.name;
+                        return name && name.trim().length > 1 && !/^[.\-_]+$/.test(name.trim());
+                    });
+
                     if (isMounted) {
                         setParameters(mappedParams);
-                        setMedications(Array.isArray(meds) ? meds : []);
-                        setConditions(Array.isArray(conds) ? conds : []);
+                        setMedications(cleanMeds);
+                        setConditions(cleanConds);
                         setGroupedParams(groupParameters(mappedParams));
                         setStatusSummary(getStatusSummary(mappedParams));
                     }
 
-                    if (mappedParams.length > 0 || (Array.isArray(meds) && meds.length > 0) || (Array.isArray(conds) && conds.length > 0)) {
+                    if (mappedParams.length > 0 || cleanMeds.length > 0 || cleanConds.length > 0) {
                         setLoading(false);
                         return;
                     }
