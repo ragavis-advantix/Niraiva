@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useChat } from '@/contexts/ChatContext';
 import { MessageCircle, Minus, X, Send } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/fhir';
 
 export const ChatbotModal: React.FC = () => {
     const { chatState, chatContext, minimizeChat, closeChat, restoreChat } = useChat();
@@ -67,8 +68,9 @@ export const ChatbotModal: React.FC = () => {
         setLoading(true);
 
         try {
-            // Send to backend with chat context parameters
-            const response = await fetch('/api/chat/timeline/stream', {
+            // CRITICAL: Use full API base URL, not relative path
+            const apiBaseUrl = getApiBaseUrl();
+            const response = await fetch(`${apiBaseUrl}/api/chat/timeline/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -163,12 +165,13 @@ export const ChatbotModal: React.FC = () => {
                     bottom: position.y === 0 ? '1.5rem' : 'auto',
                 }}
             >
-                <div className="w-96 h-[600px] bg-white dark:bg-slate-950 rounded-xl shadow-2xl flex flex-col border border-gray-200 dark:border-gray-800">
+                {/* MAIN CONTAINER - FLEX COLUMN FOR PROPER LAYOUT */}
+                <div className="w-96 h-[600px] bg-white dark:bg-slate-950 rounded-xl shadow-2xl flex flex-col border border-gray-200 dark:border-gray-800 overflow-hidden">
                     {/* ===== HEADER (DRAGGABLE) ===== */}
                     <div
                         ref={dragRef}
                         onMouseDown={onMouseDown}
-                        className="flex justify-between items-center px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-t-xl cursor-move select-none"
+                        className="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gradient-to-r from-teal-500 to-teal-600 text-white cursor-move select-none"
                     >
                         <div className="flex items-center gap-2">
                             <MessageCircle className="w-5 h-5" />
@@ -200,13 +203,13 @@ export const ChatbotModal: React.FC = () => {
                     </div>
 
                     {/* ===== CONTEXT INFO ===== */}
-                    <div className="px-4 py-2 bg-gray-50 dark:bg-slate-900 text-xs text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                    <div className="flex-shrink-0 px-4 py-2 bg-gray-50 dark:bg-slate-900 text-xs text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
                         <span className="font-medium">Context:</span> {chatContext?.source || 'Health parameters'}
                         {chatContext?.diagnosisDate && <span className="block text-gray-500 mt-1">Date: {chatContext.diagnosisDate}</span>}
                     </div>
 
-                    {/* ===== MESSAGES AREA ===== */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {/* ===== MESSAGES AREA (SCROLLABLE FLEX) ===== */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 dark:bg-slate-800/50">
                         {messages.length === 0 ? (
                             <>
                                 <div className="bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-950 dark:to-cyan-950 rounded-lg p-3 text-sm text-gray-700 dark:text-gray-300">
@@ -223,15 +226,34 @@ export const ChatbotModal: React.FC = () => {
                                         )}
                                     </div>
                                 )}
+
+                                {/* SUGGESTIONS - MOVED HERE SO INPUT STAYS AT BOTTOM */}
+                                <div className="bg-white dark:bg-slate-900 rounded-lg p-3 space-y-2 border border-gray-200 dark:border-gray-700">
+                                    <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">💡 Try asking:</p>
+                                    <div className="space-y-1.5">
+                                        {["What does this report mean?", "Are these results normal?", "What should I focus on next?"].map((suggestion) => (
+                                            <button
+                                                key={suggestion}
+                                                onClick={() => {
+                                                    setInput(suggestion);
+                                                    setTimeout(() => inputRef.current?.focus(), 50);
+                                                }}
+                                                className="w-full text-left text-xs px-3 py-2 bg-gray-100 dark:bg-slate-800 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 hover:bg-teal-100 dark:hover:bg-teal-900/40 hover:border-teal-400 transition-colors font-medium"
+                                            >
+                                                • {suggestion}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </>
                         ) : (
                             messages.map((msg, idx) => (
                                 <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-xs rounded-lg p-3 ${msg.role === 'user'
                                         ? 'bg-teal-600 text-white'
-                                        : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700'
                                         }`}>
-                                        <p className="text-sm">{msg.content}</p>
+                                        <p className="text-sm leading-relaxed">{msg.content}</p>
                                     </div>
                                 </div>
                             ))
@@ -239,18 +261,18 @@ export const ChatbotModal: React.FC = () => {
 
                         {loading && (
                             <div className="flex justify-start">
-                                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
-                                    <p className="text-sm text-gray-600 dark:text-gray-400">Thinking...</p>
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                                    <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">⏳ Thinking...</p>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* ===== INPUT AREA (ALWAYS ENABLED AND PROMINENT) ===== */}
-                    <div className="border-t border-gray-200 dark:border-gray-800 p-4 bg-white dark:bg-slate-900 rounded-b-xl space-y-3">
-                        {/* CRITICAL: Input field MUST be visible and responsive */}
+                    {/* ===== INPUT AREA - FIXED AT BOTTOM, ALWAYS VISIBLE ===== */}
+                    <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-800 p-4 bg-white dark:bg-slate-900">
+                        {/* CRITICAL: Input field MUST be visible at ALL times */}
                         <div className="flex gap-2 items-stretch">
-                            {/* FIX 3: Input ALWAYS enabled, auto-focused, and ALWAYS visible */}
+                            {/* FIX: Input ALWAYS enabled, auto-focused, and ALWAYS visible */}
                             <input
                                 ref={inputRef}
                                 type="text"
@@ -264,44 +286,18 @@ export const ChatbotModal: React.FC = () => {
                                 }}
                                 autoFocus
                                 placeholder="Type your question here..."
-                                className="flex-1 border-2 border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2.5 text-sm font-medium placeholder-gray-500 dark:bg-slate-800 dark:text-white focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all"
+                                className="flex-1 border-2 border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3 text-sm font-medium placeholder-gray-500 dark:placeholder-gray-400 dark:bg-slate-800 dark:text-white focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all"
                             />
                             <button
                                 onClick={handleSendMessage}
                                 disabled={!input.trim() || loading}
-                                className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg transition-all text-sm font-bold flex items-center gap-1.5 whitespace-nowrap"
+                                className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg transition-all text-sm font-bold flex items-center gap-1.5 whitespace-nowrap"
                                 title={loading ? "Waiting for response..." : "Send message (or press Enter)"}
                             >
                                 <Send className={`w-4 h-4 ${loading ? 'animate-pulse' : ''}`} />
-                                {loading ? 'Sending...' : 'Send'}
+                                <span className="hidden sm:inline">{loading ? 'Sending' : 'Send'}</span>
                             </button>
                         </div>
-
-                        {/* FIX 4: Suggestions appear BELOW input, not instead of it */}
-                        {messages.length === 0 && (
-                            <div className="space-y-2 mt-2">
-                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider px-0.5">Quick suggestions:</p>
-                                <div className="grid grid-cols-1 gap-1.5">
-                                    {["What does this report mean?", "Are these results normal?", "What should I focus on next?"].map((suggestion) => (
-                                        <button
-                                            key={suggestion}
-                                            onClick={() => {
-                                                setInput(suggestion);
-                                                setTimeout(() => inputRef.current?.focus(), 50);
-                                            }}
-                                            className="w-full text-left text-xs px-3 py-2 bg-gray-100 dark:bg-slate-800 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 hover:bg-teal-100 dark:hover:bg-teal-900/40 hover:border-teal-400 transition-colors font-medium"
-                                        >
-                                            💡 {suggestion}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Helpful hint text */}
-                        <p className="text-xs text-gray-500 dark:text-gray-400 text-center font-medium mt-1">
-                            Type anything or click a suggestion above
-                        </p>
                     </div>
                 </div>
             </div>

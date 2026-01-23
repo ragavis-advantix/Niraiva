@@ -4,6 +4,7 @@ import { Bot, X, Send, Sparkles, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { getApiBaseUrl } from '@/lib/fhir';
 
 interface TimelineAssistantProps {
     eventContext?: any;
@@ -126,8 +127,9 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                 parameterNames: parameters.map((p: any) => p.name || p.parameter_name)
             });
 
-            // 2. Call Backend API (Streaming) with AbortSignal
-            const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chat/timeline/stream`, {
+            // 2. Call Backend API (Streaming) with AbortSignal and CORRECT URL
+            const apiBaseUrl = getApiBaseUrl();
+            const response = await fetch(`${apiBaseUrl}/api/chat/timeline/stream`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
