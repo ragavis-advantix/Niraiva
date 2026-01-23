@@ -421,7 +421,7 @@ export function DiagnosticMap({ nodes, className }: DiagnosticMapProps) {
         </div>
 
         <div
-          className="w-full h-[700px] relative touch-none"
+          className="w-full h-[400px] relative touch-none"
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}

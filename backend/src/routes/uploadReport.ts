@@ -342,8 +342,120 @@ ${cleanedText}
                 if (weightValue) health_metrics.weight = weightValue;
                 if (bmi) health_metrics.bmi = bmi;
 
-                // Extract chronic conditions from aiJSON
                 const chronicConditions = aiJSON?.data?.conditions?.map((c: any) => c.name).filter(Boolean) || [];
+
+                // 📊 HEALTH SNAPSHOT UPDATE (Delta-based merge)
+                if (aiStatus === 'parsed') {
+                    try {
+                        console.log('🔄 Syncing health snapshot for user:', user.id);
+                        const { data: existing } = await supabaseAdmin
+                            .from('patient_health_snapshot')
+                            .select('*')
+                            .eq('patient_id', user.id)
+                            .maybeSingle();
+
+                        const data = aiJSON?.data || aiJSON || {};
+                        const parsedParams = data.parameters || data.tests || [];
+
+                        // Robust condition extractor (Canonical Mapping)
+                        const extractChronicConditions = (parsed: any): string[] | null => {
+                            const conditionsList = new Set<string>();
+
+                            // Check 'conditions' field (current implementation)
+                            if (Array.isArray(parsed.conditions)) {
+                                parsed.conditions.forEach((c: any) => {
+                                    const name = typeof c === 'string' ? c : (c.name || c.condition);
+                                    if (name) conditionsList.add(name);
+                                });
+                            }
+
+                            // Check 'diagnosis' field (common LLM output)
+                            if (Array.isArray(parsed.diagnosis)) {
+                                parsed.diagnosis.forEach((d: any) => {
+                                    if (typeof d === 'string') conditionsList.add(d);
+                                    else if (d.name) conditionsList.add(d.name);
+                                });
+                            }
+
+                            // Check 'chronic_conditions' field
+                            if (Array.isArray(parsed.chronic_conditions)) {
+                                parsed.chronic_conditions.forEach((c: any) => {
+                                    if (typeof c === 'string') conditionsList.add(c);
+                                    else if (c.name) conditionsList.add(c.name);
+                                });
+                            }
+
+                            // Heuristic extraction from summary
+                            const summary = (parsed.summary || "").toLowerCase();
+                            if (summary.includes("neuropathy")) conditionsList.add("Peripheral Neuropathy");
+                            if (summary.includes("prediabetic") || summary.includes("pre-diabetic")) conditionsList.add("Pre-diabetes");
+                            if (summary.includes("hypertension") || summary.includes("high blood pressure")) conditionsList.add("Hypertension");
+
+                            return conditionsList.size > 0 ? Array.from(conditionsList) : null;
+                        };
+
+                        const parsedConditions = extractChronicConditions(data);
+
+                        const findParam = (names: string[]) => {
+                            const p = parsedParams.find((p: any) => {
+                                const pName = (p.name || p.parameter || "").toLowerCase();
+                                return names.some(n => pName.includes(n));
+                            });
+                            if (!p || p.value === null || p.value === undefined) return null;
+                            const val = typeof p.value === 'number' ? p.value : parseFloat(String(p.value));
+                            return isNaN(val) ? null : val;
+                        };
+
+                        const systolic = findParam(['systolic blood pressure', 'systolic bp']);
+                        const diastolic = findParam(['diastolic blood pressure', 'diastolic bp']);
+                        const heart_rate = findParam(['heart rate', 'pulse']);
+                        const spo2 = findParam(['oxygen saturation', 'spo2']);
+                        const temperature = findParam(['temperature', 'body temperature']);
+                        const hba1c = findParam(['hba1c', 'hb a1c']);
+                        const ldl = findParam(['ldl cholesterol', 'ldl']);
+                        const b12 = findParam(['vitamin b12', 'b12']);
+
+                        // Merge logic
+                        const updatedSnapshot: any = {
+                            patient_id: user.id,
+                            systolic_bp: systolic ?? existing?.systolic_bp,
+                            diastolic_bp: diastolic ?? existing?.diastolic_bp,
+                            heart_rate: heart_rate ?? existing?.heart_rate,
+                            spo2: spo2 ?? existing?.spo2,
+                            temperature: temperature ?? existing?.temperature,
+                            hba1c: hba1c ?? existing?.hba1c,
+                            ldl: ldl ?? existing?.ldl,
+                            vitamin_b12: b12 ?? existing?.vitamin_b12,
+
+                            // FIX: Only overwrite if we have NEW conditions, otherwise keep existing
+                            chronic_conditions: parsedConditions !== null
+                                ? parsedConditions
+                                : (existing?.chronic_conditions || []),
+
+                            source_report_id: reportData.id,
+                            last_updated: new Date().toISOString()
+                        };
+
+                        // Only upsert if there's at least one data field provided
+                        const hasNewData = [systolic, diastolic, heart_rate, spo2, temperature, hba1c, ldl, b12].some(v => v !== null) || parsedConditions !== null;
+
+                        if (hasNewData) {
+                            const { error: snapshotErr } = await supabaseAdmin
+                                .from('patient_health_snapshot')
+                                .upsert(updatedSnapshot);
+
+                            if (snapshotErr) {
+                                console.warn('⚠️ Failed to upsert health snapshot:', snapshotErr);
+                            } else {
+                                console.log('✅ Health snapshot updated successfully');
+                            }
+                        } else {
+                            console.log('ℹ️ No new structured health fields found, skipping snapshot update');
+                        }
+                    } catch (snapErr) {
+                        console.warn('❌ Health snapshot sync error:', snapErr);
+                    }
+                }
 
                 // Upsert into user_profiles (if AI succeeded)
                 if (aiStatus === 'parsed' && (Object.keys(health_metrics).length > 0 || age || profile.name || profile.gender || chronicConditions.length > 0 || profile.allergies || aiJSON?.data?.medications)) {
@@ -367,17 +479,18 @@ ${cleanedText}
                     if (profile.allergies) upsertPayload.allergies = profile.allergies;
                     if (aiJSON?.data?.medications) upsertPayload.medications = aiJSON.data.medications;
 
-                    // Metadata
-                    upsertPayload.last_updated_by = 'report_upload';
+                    // metadata
+                    upsertPayload.last_updated_at = new Date().toISOString();
+                    upsertPayload.full_name = upsertPayload.name || upsertPayload.full_name; // Sync name fields
 
                     console.log('💾 Upserting user profile with:', {
-                        name: profile.name,  // ✅ Changed full_name → name
+                        full_name: upsertPayload.full_name,
                         age,
-                        gender: profile.gender,
-                        height: heightValue,
-                        weight: weightValue,
+                        gender: upsertPayload.gender,
+                        height: upsertPayload.height,
+                        weight: upsertPayload.weight,
                         bmi,
-                        blood_group: profile.bloodType,
+                        blood_group: upsertPayload.blood_group,
                         chronic_conditions: chronicConditions
                     });
 
@@ -465,6 +578,34 @@ ${cleanedText}
                     }
                 } else {
                     debugLog('⚠️ Skipping timeline event because AI parsing failed');
+                }
+
+                // 🔗 NEW: Extract clinical events for diagnostic pathway
+                if (aiStatus === 'parsed' && reportData?.id) {
+                    try {
+                        console.log(`🔗 [DiagnosticPathway] Extracting events from report ${reportData.id}`);
+                        debugLog(`🔗 [DiagnosticPathway] Starting event extraction for report ${reportData.id}`);
+
+                        const { eventExtractionService } = await import('../modules/diagnostic-pathway/EventExtractionService');
+                        const { edgeConstructionService } = await import('../modules/diagnostic-pathway/EdgeConstructionService');
+
+                        // Extract events from parsed report
+                        const eventIds = await eventExtractionService.processReportEvents(
+                            user.id,
+                            reportData.id,
+                            aiJSON
+                        );
+
+                        // Build causal edges
+                        const edgeIds = await edgeConstructionService.constructEdges(user.id);
+
+                        console.log(`✅ [DiagnosticPathway] Extracted ${eventIds.length} events, created ${edgeIds.length} edges`);
+                        debugLog(`✅ [DiagnosticPathway] Extracted ${eventIds.length} events, created ${edgeIds.length} edges`);
+                    } catch (e: any) {
+                        console.warn('⚠️ [DiagnosticPathway] Event extraction error (non-critical):', e.message);
+                        debugLog(`⚠️ [DiagnosticPathway] Event extraction error: ${e.message}`);
+                        // Don't fail the upload if pathway extraction fails
+                    }
                 }
             } catch (e) {
                 console.warn('Profile update after upload failed:', e);

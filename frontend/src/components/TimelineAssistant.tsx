@@ -15,13 +15,30 @@ interface Message {
     followUpType?: string;
 }
 
+interface ChatResponse {
+    token?: string;
+    sessionId?: string;
+    done?: boolean;
+    suggestedFollowUps?: string[];
+    currentTopic?: string;
+    disclaimer?: string;
+}
+
 const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) => {
     const { user, session } = useAuth();
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputValue, setInputValue] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isTyping, setIsTyping] = useState(false); // STEP 9: New typing indicator
     const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+    const [suggestedFollowUps, setSuggestedFollowUps] = useState<string[]>([]); // STEP 10: Dynamic follow-ups
+    const [currentTopic, setCurrentTopic] = useState<string>(''); // STEP 8: Track current topic
+    const [disclaimer, setDisclaimer] = useState<string>('');
+
+    // 🔴 CRITICAL FIX: AbortController for stream lifecycle management
+    // Keep one controller per component instance, abort old stream before starting new one
+    const abortRef = useRef<AbortController | null>(null);
 
     console.log('🤖 TimelineAssistant rendered:', { eventContext: !!eventContext, isOpen });
 
@@ -43,18 +60,73 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
         }
     }, [eventContext?.id]);
 
+    // CLEANUP ON UNMOUNT (FIX B) + CRITICAL STREAM ABORT
+    useEffect(() => {
+        return () => {
+            console.log('🧹 TimelineAssistant: Cleanup - aborting stream and resetting state');
+
+            // 🔴 ABORT STREAM FIRST before resetting state
+            if (abortRef.current) {
+                console.log('🛑 Aborting active stream');
+                abortRef.current.abort();
+                abortRef.current = null;
+            }
+
+            // THEN reset state
+            setMessages([]);
+            setInputValue('');
+            setChatSessionId(null);
+            setIsLoading(false);
+            setIsOpen(false);
+            setIsTyping(false); // STEP 9: Clean up typing state
+            setSuggestedFollowUps([]); // STEP 10: Clean up follow-ups
+            setCurrentTopic(''); // STEP 8: Clean up topic
+            setDisclaimer(''); // STEP 7: Clean up disclaimer
+        };
+    }, []);
+
+
     const handleSend = async (overrideText?: string) => {
         const text = overrideText || inputValue;
-        if (!text.trim() || !eventContext || isLoading) return;
+        // FIX D: Guard without early return - proper guard with logging
+        if (!text.trim() || !eventContext) return;
+        if (isLoading) {
+            console.warn('⚠️ Already loading, ignoring duplicate send');
+            return;
+        }
+
+        // 🔴 CRITICAL: Abort old stream before starting new one
+        if (abortRef.current) {
+            console.log('🛑 Aborting previous stream before starting new request');
+            abortRef.current.abort();
+        }
+
+        // Create NEW AbortController for THIS request
+        const controller = new AbortController();
+        abortRef.current = controller;
+        const signal = controller.signal;
 
         // 1. Add User Message
         const userMsg: Message = { role: 'user', content: text };
         setMessages(prev => [...prev, userMsg]);
         setInputValue('');
         setIsLoading(true);
+        setIsTyping(true); // STEP 9: Start typing indicator
 
         try {
-            // 2. Call Backend API (Streaming)
+            // CRITICAL FIX: Extract parameters from event context
+            // Frontend MUST send exact structured data to backend
+            const parameters = eventContext.metadata?.report_json?.data?.parameters ||
+                eventContext.parameters ||
+                [];
+
+            console.log('📤 Sending to chat API:', {
+                timelineEventId: eventContext.id,
+                parametersCount: parameters.length,
+                parameterNames: parameters.map((p: any) => p.name || p.parameter_name)
+            });
+
+            // 2. Call Backend API (Streaming) with AbortSignal
             const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/chat/timeline/stream`, {
                 method: 'POST',
                 headers: {
@@ -65,8 +137,13 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                     patientId: user?.id,
                     timelineEventId: eventContext.id,
                     question: text,
-                    sessionId: chatSessionId
-                })
+                    sessionId: chatSessionId,
+                    // CRITICAL: Send parameters as single source of truth
+                    parameters: parameters,
+                    // Also send summary flags if available
+                    summaryFlags: eventContext.metadata?.summary_flags || {}
+                }),
+                signal: signal // 🔴 PASS ABORT SIGNAL
             });
 
             if (!response.ok) {
@@ -82,8 +159,15 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
 
             // Add empty assistant message to fill in
             setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+            setIsTyping(false); // Stop typing after first response starts
 
             while (true) {
+                // 🔴 Check if stream was aborted
+                if (signal.aborted) {
+                    console.log('📡 Stream aborted by user or component unmount');
+                    break;
+                }
+
                 const { done, value } = await reader.read();
                 if (done) break;
 
@@ -95,14 +179,14 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                     const trimmed = line.trim();
                     if (trimmed.startsWith('data: ')) {
                         try {
-                            const data = JSON.parse(trimmed.slice(6));
+                            const data: ChatResponse = JSON.parse(trimmed.slice(6));
 
                             if (data.error) {
                                 console.error("Stream Error:", data.error);
                                 throw new Error(data.error);
                             }
 
-                            if (data.token) {
+                            if (data.token && data.token.trim()) {
                                 accumulatedText += data.token;
                                 setMessages(prev => {
                                     const next = [...prev];
@@ -115,8 +199,22 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                                     return next;
                                 });
                             }
+                            // STEP 8: Capture metadata from backend
                             if (data.sessionId) {
                                 setChatSessionId(data.sessionId);
+                            }
+                            if (data.done) {
+                                // STEP 10: Capture dynamic follow-ups
+                                if (data.suggestedFollowUps) {
+                                    console.log('📌 Received follow-ups:', data.suggestedFollowUps);
+                                    setSuggestedFollowUps(data.suggestedFollowUps);
+                                }
+                                if (data.currentTopic) {
+                                    setCurrentTopic(data.currentTopic);
+                                }
+                                if (data.disclaimer) {
+                                    setDisclaimer(data.disclaimer);
+                                }
                             }
                         } catch (e) {
                             // JSON fragment or malformed
@@ -126,21 +224,27 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
             }
 
         } catch (error: any) {
-            console.error(error);
-            const errorMsg = typeof error === 'string' ? error : (error.message || "I'm having trouble connecting to the medical database.");
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: `Sorry, I encountered an error: ${errorMsg}`
-            }]);
+            // Don't show error if it was an abort
+            if (error.name === 'AbortError' || signal.aborted) {
+                console.log('ℹ️ Stream was cleanly aborted');
+            } else {
+                console.error('❌ Error:', error);
+                const errorMsg = typeof error === 'string' ? error : (error.message || "I'm having trouble connecting to the medical database.");
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `Sorry, I encountered an error: ${errorMsg}`
+                }]);
+            }
         } finally {
             setIsLoading(false);
+            setIsTyping(false); // STEP 9: Always stop typing indicator
         }
     };
 
     if (!eventContext) return null; // Don't show if no event selected
 
-    // Controlled follow-up suggestions (fixed UI buttons, not generated by LLM)
-    const suggestedQuestions = [
+    // STEP 10: Use dynamic follow-ups from backend if available, otherwise fall back to defaults
+    const displayFollowUps = suggestedFollowUps.length > 0 ? suggestedFollowUps : [
         "What does this report mean?",
         "Are these results normal?",
         "What should I focus on next?"
@@ -198,7 +302,7 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                             </div>
 
                             <div className="space-y-2 w-full mb-8">
-                                {suggestedQuestions.map((q, i) => (
+                                {displayFollowUps.map((q, i) => (
                                     <div key={i} className="flex items-start gap-2 text-left text-xs text-slate-600">
                                         <span className="text-niraiva-600 font-bold">•</span>
                                         <span>{q}</span>
@@ -209,7 +313,7 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
 
                         {/* Quick Action Buttons */}
                         <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 space-y-2">
-                            {suggestedQuestions.map((question, i) => (
+                            {displayFollowUps.map((question, i) => (
                                 <button
                                     key={i}
                                     onClick={() => handleSend(question)}
@@ -271,18 +375,19 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                             {messages.map((msg, i) => (
                                 <div key={i} className={cn("flex", msg.role === 'user' ? "justify-end" : "justify-start")}>
                                     <div className={cn(
-                                        "max-w-[85%] p-3 text-sm leading-relaxed",
+                                        "max-w-[70%] p-3 text-sm leading-[1.4] text-left word-break break-word", // FIXED: text-align left, proper line-height, word-break
                                         msg.role === 'user'
                                             ? "bg-niraiva-600 text-white rounded-2xl rounded-tr-none shadow-md shadow-niraiva-100"
                                             : "bg-white text-slate-700 rounded-2xl rounded-tl-none border border-slate-100 shadow-sm"
                                     )}>
                                         {msg.content.split('\n').map((line: string, j: number) => (
-                                            <p key={j} className={j > 0 ? "mt-1" : ""}>{line}</p>
+                                            <p key={j} className={`text-left whitespace-normal ${j > 0 ? "mt-1" : ""}`}>{line}</p>
                                         ))}
                                     </div>
                                 </div>
                             ))}
-                            {isLoading && (
+                            {/* STEP 9: Show typing indicator when generating response */}
+                            {isTyping && (
                                 <div className="flex justify-start">
                                     <div className="bg-white p-3 rounded-2xl rounded-tl-none border border-slate-100 shadow-sm">
                                         <div className="flex gap-1">
@@ -296,10 +401,10 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                             <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Suggested Follow Ups (Controlled Buttons) */}
-                        {!isLoading && messages.length > 1 && (
+                        {/* Suggested Follow Ups (Dynamic from Backend) */}
+                        {!isLoading && messages.length > 1 && displayFollowUps.length > 0 && (
                             <div className="px-4 py-2 bg-white border-t border-slate-50 flex gap-2 overflow-x-auto no-scrollbar">
-                                {suggestedQuestions.map((suggestion, i) => (
+                                {displayFollowUps.map((suggestion, i) => (
                                     <button
                                         key={i}
                                         onClick={() => handleSend(suggestion)}
@@ -311,11 +416,11 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                             </div>
                         )}
 
-                        {/* Disclaimer */}
+                        {/* Disclaimer - Dynamic from Backend */}
                         <div className="px-4 py-2 bg-amber-50 border-t border-amber-100 flex items-center gap-2">
                             <AlertCircle className="h-3 w-3 text-amber-600 shrink-0" />
                             <p className="text-[9px] font-bold text-amber-700 leading-tight uppercase tracking-tight">
-                                Informational only. Not a medical diagnosis.
+                                {disclaimer || "This information is educational only. Please discuss any concerns with your doctor."}
                             </p>
                         </div>
 

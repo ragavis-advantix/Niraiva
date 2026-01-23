@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS user_profiles;
 -- Create user_profiles table
 CREATE TABLE user_profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID UNIQUE, -- Links to auth.users
     abha_number VARCHAR(20) UNIQUE,
     first_name VARCHAR(100),
     middle_name VARCHAR(100),
@@ -33,6 +34,16 @@ CREATE TABLE user_profiles (
     medications JSONB[], -- Store array of medication objects
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create user_roles table
+CREATE TABLE IF NOT EXISTS user_roles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('patient', 'doctor', 'admin')),
+    patient_id UUID REFERENCES patient_master(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(user_id)
 );
 
 -- Create logs table for debugging

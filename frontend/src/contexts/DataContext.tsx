@@ -10,6 +10,7 @@ type DataShape = {
   timelineEvents: TimelineEvent[];
   chronicConditions: ChronicCondition[];
   medications: any[];
+  healthSnapshot: any | null;
 };
 
 type UpdateInstruction = {
@@ -35,6 +36,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]);
   const [chronicConditions, setChronicConditions] = useState<ChronicCondition[]>([]);
   const [medications, setMedications] = useState<any[]>([]);
+  const [healthSnapshot, setHealthSnapshot] = useState<any | null>(null);
 
   // Normalize report parameters coming from backend/Gemini into UI-friendly HealthParameter
   const normalizeReportParameters = useCallback((params: any[]) => {
@@ -313,6 +315,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     console.log('Loaded timeline events:', data);
     return data || [];
+  }, []);
+
+  // Load health snapshot for a user
+  const loadHealthSnapshot = useCallback(async (userId: string) => {
+    console.log('Loading health snapshot for user:', userId);
+    const { data, error } = await supabase
+      .from('patient_health_snapshot')
+      .select('*')
+      .eq('patient_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error loading health snapshot:', error);
+      return null;
+    }
+
+    console.log('Loaded health snapshot:', data);
+    return data;
   }, []);
 
   const refreshUserData = useCallback(async () => {
@@ -624,17 +644,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     setUserProfile(normalizedProfile as any);
 
-    // Load health parameters, timeline events, and chronic conditions
-    const [params, events, conditions] = await Promise.all([
+    // Load health parameters, timeline events, chronic conditions, and health snapshot
+    const [params, events, conditions, snapshotData] = await Promise.all([
       loadHealthParameters(user.id),
       loadTimelineEvents(user.id),
-      loadChronicConditions(user.id)
+      loadChronicConditions(user.id),
+      loadHealthSnapshot(user.id)
     ]);
 
     setHealthParameters(params);
     setTimelineEvents(events);
     setChronicConditions((conditions || []).map((c: any) => normalizeCondition(c || {})));
-  }, [user?.id, session?.access_token]);
+    setHealthSnapshot(snapshotData);
+  }, [user?.id, session?.access_token, loadHealthSnapshot]);
 
   // Load user data when the user id changes.
   // We intentionally depend only on `user?.id` to avoid refreshUserData's
@@ -651,6 +673,36 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
     })();
     return () => { mounted = false; };
+  }, [user?.id]);
+
+  // Real-time subscription for health snapshot
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel('health-snapshot-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'patient_health_snapshot',
+          filter: `patient_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('Real-time update for health snapshot:', payload);
+          if (payload.eventType === 'DELETE') {
+            setHealthSnapshot(null);
+          } else {
+            setHealthSnapshot(payload.new);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user?.id]);
 
   const applyUpdate = useCallback(async (instruction: UpdateInstruction) => {
@@ -905,6 +957,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     timelineEvents,
     chronicConditions,
     medications,
+    healthSnapshot,
     applyUpdate,
     applyUpdates,
     resetData,

@@ -81,6 +81,126 @@ function extractRelevantContext(reportData: any, userQuestion: string): any {
     };
 }
 
+// NEW: Build structured patient context (Step 1)
+function buildPatientContext(reportData: any, patient_profile?: any): any {
+    const abnormalParams = (reportData.parameters || reportData.tests || [])
+        .filter((p: any) => p.status === 'high' || p.status === 'low' || p.status === 'abnormal' || p.flag === 'abnormal')
+        .map((p: any) => ({
+            name: p.name || p.parameter_name,
+            value: p.value,
+            unit: p.unit,
+            status: p.status || p.flag,
+            normal_range: p.normal_range || p.reference_range
+        }));
+
+    const normalParams = (reportData.parameters || reportData.tests || [])
+        .filter((p: any) => p.status === 'normal' || p.flag === 'normal' || !p.status)
+        .map((p: any) => ({
+            name: p.name || p.parameter_name,
+            value: p.value,
+            unit: p.unit
+        }));
+
+    return {
+        patient: {
+            age: reportData.profile?.age || patient_profile?.age,
+            gender: reportData.profile?.gender || patient_profile?.gender,
+            known_conditions: (reportData.conditions || []).map((c: any) =>
+                typeof c === 'string' ? c : c.name || c.condition_name
+            )
+        },
+        abnormal_parameters: abnormalParams,
+        normal_parameters: normalParams,
+        all_parameters: reportData.parameters || reportData.tests || [],
+        medications: reportData.medications || [],
+        report_date: reportData.metadata?.documentDate || reportData.metadata?.report_date || new Date().toISOString().split('T')[0]
+    };
+}
+
+// NEW: Lightweight intent detection (Step 2)
+function enhancedDetectIntent(question: string): {
+    type: "cause_explanation" | "normality_check" | "next_steps" | "parameter_explanation" | "trend" | "safety" | "general";
+    targetParameter?: string;
+} {
+    const q = question.toLowerCase();
+
+    // Extract parameter name if mentioned
+    const parameterMatch = q.match(/\b(creatinine|bp|blood pressure|glucose|sugar|hemoglobin|hba1c|kidney|liver|heart|cholesterol|triglyceride|potassium|sodium|albumin|platelet|wbc|rbc)\b/i);
+    const targetParameter = parameterMatch ? parameterMatch[1] : undefined;
+
+    if (q.includes("why") || q.includes("cause") || q.includes("reason") || q.includes("happen")) {
+        return { type: "cause_explanation", targetParameter };
+    }
+    if (q.includes("normal") || q.includes("range") || q.includes("should be") || q.includes("ok")) {
+        return { type: "normality_check", targetParameter };
+    }
+    if (q.includes("next") || q.includes("should i") || q.includes("do") || q.includes("care")) {
+        return { type: "next_steps", targetParameter };
+    }
+    if (q.includes("dangerous") || q.includes("urgent") || q.includes("severe") || q.includes("emergency")) {
+        return { type: "safety", targetParameter };
+    }
+    if (q.includes("trend") || q.includes("before") || q.includes("compare") || q.includes("change")) {
+        return { type: "trend", targetParameter };
+    }
+    if (q.includes("what is") || q.includes("mean") || q.includes("explain")) {
+        return { type: "parameter_explanation", targetParameter };
+    }
+    return { type: "general", targetParameter };
+}
+
+// NEW: Sanitize LLM response to remove markdown (Step 4)
+function sanitizeResponse(text: string): string {
+    return text
+        .replace(/\*\*/g, "")       // Remove bold markers **
+        .replace(/\*\*/g, "")       // Remove italic markers *
+        .replace(/#{1,6}\s/g, "")   // Remove heading markers #
+        .replace(/`{1,3}/g, "")     // Remove code markers
+        .replace(/_{2,}/g, "")      // Remove underline/emphasis ___
+        .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1") // Remove markdown links, keep text
+        .replace(/\n{3,}/g, "\n\n") // Remove extra paragraphs (keep double newlines)
+        .trim();                     // Only trim edges, preserve internal spaces
+}
+
+// NEW: Generate contextual follow-up questions (Step 6)
+function generateFollowUpQuestions(
+    parameter?: string,
+    patientAge?: number,
+    patientConditions?: string[],
+    intent?: string
+): string[] {
+    const questions: string[] = [];
+
+    if (parameter && parameter.toLowerCase().includes("creatinine")) {
+        questions.push(
+            "What should I be careful about with my kidney health?",
+            "Can this improve with lifestyle changes?",
+            "How often should I get tests?"
+        );
+    } else if (parameter && (parameter.toLowerCase().includes("glucose") || parameter.toLowerCase().includes("sugar"))) {
+        questions.push(
+            "What foods should I avoid?",
+            "How does this affect my daily life?",
+            "What's the plan to bring this down?"
+        );
+    } else if (parameter && (parameter.toLowerCase().includes("bp") || parameter.toLowerCase().includes("blood pressure"))) {
+        questions.push(
+            "What can I do to lower it?",
+            "Is this immediately dangerous?",
+            "How often should I monitor it?"
+        );
+    } else {
+        // Generic follow-ups
+        questions.push(
+            "What should I focus on most?",
+            "Is this reversible?",
+            "What are the next steps?"
+        );
+    }
+
+    return questions.slice(0, 3);
+}
+
 export class ChatService {
     private llmService: MultiLLMService;
 
@@ -89,8 +209,9 @@ export class ChatService {
     }
 
     private async getOrCreateSession(patientId: string, timelineEventId: string, sessionId?: string) {
-        if (sessionId) return sessionId;
-
+        // FIX C: ALWAYS CREATE NEW SESSION - Never reuse old sessions
+        // This ensures every "Ask AI" click gets a fresh chat
+        // The sessionId parameter is still accepted for compatibility but always ignored
         try {
             const { data: session, error } = await supabase
                 .from('chat_sessions')
@@ -357,7 +478,10 @@ ${JSON.stringify(trendHistory, null, 2)}`;
         patientId: string,
         timelineEventId: string,
         userQuestion: string,
-        sessionId?: string
+        sessionId?: string,
+        // CRITICAL FIX: Accept parameters from frontend as single source of truth
+        providedParameters?: any[],
+        summaryFlags?: any
     ) {
         let currentSessionId = sessionId;
         let persistenceEnabled = true;
@@ -392,68 +516,114 @@ ${JSON.stringify(trendHistory, null, 2)}`;
             return;
         }
 
-        const { event, context, history } = await this.buildMedicalContext(timelineEventId, patientId);
+        // CRITICAL FIX: Use provided parameters as PRIMARY source of truth
+        // NEVER re-fetch or guess if frontend sends parameters
+        let context: any = null;
+        let history: any[] = [];
+        let event: any = null;
 
-        if (!context) {
-            const noDataContext = "I could not find structured data for this report yet. I can only answer general questions about medical terms.";
-            yield { token: noDataContext, sessionId: currentSessionId, done: true };
+        if (providedParameters && providedParameters.length > 0) {
+            // Frontend sent parameters - use them directly
+            console.log(`✅ [ChatStream] Using parameters from frontend: ${providedParameters.length} values`);
+            context = { parameters: providedParameters };
+        } else {
+            // Fallback only if frontend didn't send parameters
+            console.log(`⚠️ [ChatStream] No parameters from frontend, attempting to fetch...`);
+            const result = await this.buildMedicalContext(timelineEventId, patientId);
+            event = result.event;
+            context = result.context;
+            history = result.history || [];
+        }
+
+        // GUARDRAIL: If still no parameters, respond safely
+        if (!context || !context.parameters || context.parameters.length === 0) {
+            const failsafeMsg = "I cannot access the detailed report information right now. Please try again in a moment.";
+            console.warn(`⚠️ [ChatStream] No parameters available - using fail-safe response`);
+            yield { token: failsafeMsg, sessionId: currentSessionId, done: true };
             return;
         }
 
         // Detect user intent and route response style
         const userIntent = detectUserIntent(userQuestion);
+        const enhancedIntent = enhancedDetectIntent(userQuestion);
 
         // Extract only relevant context
         const relevantContext = extractRelevantContext(context, userQuestion);
+        const patientContext = buildPatientContext(context);
 
         const matchedParam = this.detectParameterIntent(userQuestion, context.parameters);
-        const trendHistory = matchedParam ? this.getTrendInfo(matchedParam, history) : null;
+        const trendHistory = matchedParam && history.length > 0 ? this.getTrendInfo(matchedParam, history) : null;
 
-        // Build intent-specific system prompt
-        let systemPrompt = `You are a medical explanation assistant for patients.
+        // CRITICAL: Build parameter status awareness
+        const warningParameters = (context.parameters || []).filter((p: any) =>
+            p.status === 'warning' || p.status === 'critical' || p.flag === 'abnormal'
+        );
+        const hasWarnings = warningParameters.length > 0;
 
-CRITICAL FORMATTING RULES:
-- DO NOT use markdown.
-- DO NOT use **, ##, ###, -, *, or numbered lists.
-- DO NOT use headings or separators.
-- Write in plain text only.
-- Use short paragraphs (max 2 sentences each).
-- Use simple sentences.
-- Use line breaks only where needed.
+        console.log(`📊 [ChatStream] Parameter analysis: ${context.parameters.length} total | ${warningParameters.length} warnings`);
 
-CONTENT RULES:
-- Answer ONLY what the user asked.
-- Do NOT repeat the full report unless explicitly requested.
-- Be calm, supportive, and non-alarming.
-- Do NOT provide medical diagnosis.
-- Keep response to 5-8 short paragraphs maximum.
-- End with one gentle follow-up question.
+        // STEP 3: MEDICAL-GRADE SYSTEM PROMPT (with safety enforcement + conversational tone)
+        let systemPrompt = `You are Niraiva, a calm and friendly medical assistant.
 
-Patient Context:
-Age: ${relevantContext.age || 'Unknown'}, Gender: ${relevantContext.gender || 'Unknown'}
-Conditions: ${relevantContext.conditions?.join(', ') || 'None listed'}
-Key Findings: ${relevantContext.keyFindings?.map((f: any) => `${f.name} (${f.value} ${f.unit})`).join(', ') || 'None'}
-`;
+🚨 CRITICAL RULES (MUST FOLLOW EVERY TIME):
+1. ONLY reference the health parameters provided below.
+2. NEVER say values are normal if status = "warning" or "critical".
+3. If ANY warning values exist, you MUST acknowledge them clearly.
+4. Do NOT guess. Do NOT generalize. Do NOT reassure falsely.
+5. If data is missing, say: "I don't have enough information about that."
+6. Do NOT use markdown, bullet points, headings, or any symbols.
+7. Do NOT repeat numbers or values already visible on the patient's screen.
+8. Write ONLY plain text - no formatting.
 
-        // Add intent-specific guidance
-        if (userIntent === "NORMALITY_CHECK") {
-            systemPrompt += `\nUser Intent: They are asking if results are normal.
-Action: Clearly separate what is normal and what needs attention. Do not explain conditions again. Do not repeat background information.`;
-        } else if (userIntent === "NEXT_STEPS") {
-            systemPrompt += `\nUser Intent: They are asking what to do next.
-Action: Explain general next steps. Do not give medical advice. Do not repeat test explanations.`;
-        } else if (userIntent === "EXPLANATION") {
-            systemPrompt += `\nUser Intent: They are asking what something means.
-Action: Explain what these results mean in simple terms. Focus only on the most relevant findings. Do not repeat numbers unless necessary.`;
+RESPONSE STYLE (MANDATORY):
+- Maximum 3-4 short sentences per response
+- One idea per sentence
+- No medical jargon unless patient asks for it
+- Sound like a calm medical assistant, not a report
+- Ask the user to choose if multiple topics exist
+- Be conversational, not clinical
+
+PATIENT PROFILE:
+Age: ${patientContext.patient.age || 'Unknown'}
+Gender: ${patientContext.patient.gender || 'Unknown'}
+Known conditions: ${patientContext.patient.known_conditions?.join(', ') || 'None'}
+
+⚠️ VALUES NEEDING ATTENTION (${warningParameters.length}):
+${warningParameters.length > 0 ?
+                warningParameters.map((p: any) => `${p.name || p.parameter_name}: Status is ${p.status}`).join('\n')
+                : 'No abnormal values'
+            }
+
+Question Focus: ${enhancedIntent.type}${enhancedIntent.targetParameter ? ` - ${enhancedIntent.targetParameter}` : ''}`;
+
+        // IF MULTIPLE WARNINGS AND USER ASKS GENERAL "WHAT DOES THIS MEAN", ASK THEM TO CHOOSE
+        if (warningParameters.length > 1 && enhancedIntent.type === "parameter_explanation" && !enhancedIntent.targetParameter) {
+            systemPrompt += `\n\nIMPORTANT: The patient has multiple results that need attention. Instead of explaining all of them, ask them which one they'd like to understand first. Be friendly about it.
+
+Example response:
+"You have a couple of results that need attention - your hemoglobin and kidney values. Which one would you like me to explain first?"`;
+        } else {
+            // Add intent-specific guidance for single parameter or specific intent
+            if (enhancedIntent.type === "normality_check") {
+                systemPrompt += `\nTask: Answer whether the results are normal. Be clear and direct in 1-2 sentences.`;
+            } else if (enhancedIntent.type === "next_steps") {
+                systemPrompt += `\nTask: Suggest 1-2 gentle, lifestyle-focused next steps. Do not prescribe. Keep it actionable.`;
+            } else if (enhancedIntent.type === "cause_explanation") {
+                systemPrompt += `\nTask: Explain why this value is abnormal in plain language. Connect to daily life if possible.`;
+            } else if (enhancedIntent.type === "safety") {
+                systemPrompt += `\nTask: Reassure if safe, or suggest they talk to their doctor if needed. Be calm but clear.`;
+            } else if (enhancedIntent.type === "parameter_explanation") {
+                systemPrompt += `\nTask: Explain what this value measures and what it means for this patient's health. Keep it simple.`;
+            }
         }
 
         if (trendHistory) {
-            systemPrompt += `\n\nHistorical Trend for ${matchedParam.name || matchedParam.parameter_name}:
+            systemPrompt += `\n\nTrend Information for ${matchedParam.name || matchedParam.parameter_name}:
 ${JSON.stringify(trendHistory, null, 2)}`;
         }
 
         const provider = trendHistory ? "Qwen" : "Mistral";
-        console.log(`📡 [ChatStream] Selecting provider: ${provider}`);
+        console.log(`📡 [ChatStream] Selecting provider: ${provider} | Intent: ${enhancedIntent.type}`);
 
         let stream;
         try {
@@ -463,7 +633,7 @@ ${JSON.stringify(trendHistory, null, 2)}`;
                 temperature: 0.3
             });
         } catch (err: any) {
-            console.error(`❌ [ChatStream] LLM Stream initialization failed:`, err);
+            console.error(`❌[ChatStream] LLM Stream initialization failed: `, err);
             yield { token: `Sorry, I'm having trouble connecting to my AI processor (${provider}).`, sessionId: currentSessionId, done: true };
             return;
         }
@@ -495,7 +665,9 @@ ${JSON.stringify(trendHistory, null, 2)}`;
                         const token = json.choices[0]?.delta?.content || json.choices[0]?.text || "";
                         if (token) {
                             fullContent += token;
-                            yield { token, sessionId: currentSessionId };
+                            // 🔴 DO NOT SANITIZE INDIVIDUAL TOKENS - only sanitize final response
+                            // Sanitizing tokens breaks word spacing and kills spaces
+                            yield { token: token, sessionId: currentSessionId };
                         }
                     } catch (e) {
                         // Incomplete JSON or malformed
@@ -509,20 +681,48 @@ ${JSON.stringify(trendHistory, null, 2)}`;
 
         console.log(`✅ [ChatStream] Stream finished. Tokens captured: ${fullContent.length}`);
 
+        // STEP 4: Final sanitization on complete response
+        const sanitizedContent = sanitizeResponse(fullContent);
+
+        // STEP 6: Generate dynamic follow-up questions based on intent and parameter
+        const suggestedFollowUps = generateFollowUpQuestions(
+            enhancedIntent.targetParameter,
+            patientContext.patient.age,
+            patientContext.patient.known_conditions,
+            enhancedIntent.type
+        );
+
+        // STEP 8: Update response interface with new fields
+        const responseMetadata = {
+            sessionId: currentSessionId,
+            currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
+            suggestedFollowUps,
+            disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
+        };
+
         // Final store
-        if (fullContent && persistenceEnabled && currentSessionId) {
+        if (sanitizedContent && persistenceEnabled && currentSessionId) {
             try {
                 await supabase.from('chat_messages').insert({
                     session_id: currentSessionId,
                     role: 'assistant',
-                    content: fullContent,
-                    llm_used: provider
+                    content: sanitizedContent,
+                    llm_used: provider,
+                    metadata: responseMetadata
                 });
             } catch (saveErr: any) {
                 console.warn(`⚠️ [ChatStream] Failed to save assistant response:`, saveErr.message);
             }
         }
 
-        yield { sessionId: currentSessionId, done: true };
+        // Yield final metadata
+        yield {
+            token: "", // Empty token to signal end
+            sessionId: currentSessionId,
+            done: true,
+            suggestedFollowUps,
+            currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
+            disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
+        };
     }
 }

@@ -14,6 +14,8 @@ import {
 } from '@/utils/healthData';
 import { ChronicCondition } from '@/utils/healthData';
 import { useData } from '@/contexts/DataContext';
+import { getApiBaseUrl } from '@/lib/fhir';
+import { useAuth } from '@/contexts/AuthContext';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props) {
@@ -48,7 +50,10 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 const Diagnostic = () => {
   const { chronicConditions, userProfile } = useData();
   const { reports } = useReports();
+  const { user, session } = useAuth();
   const [userSpecificNodes, setUserSpecificNodes] = useState<DiagnosticNode[]>([]);
+  const [clinicalSummary, setClinicalSummary] = useState<any>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
   console.log('Chronic conditions:', chronicConditions);
 
   const [selectedCondition, setSelectedCondition] = useState<ChronicCondition | null>(() => chronicConditions?.[0] ?? null);
@@ -107,6 +112,44 @@ const Diagnostic = () => {
     loadNodes();
   }, [userProfile?.user_id, reports, selectedCondition]);
 
+  // Fetch clinical summary from health reports
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const fetchClinicalSummary = async () => {
+      try {
+        setLoadingSummary(true);
+        const apiBase = getApiBaseUrl();
+        const response = await fetch(`${apiBase}/api/diagnostic-pathway/${user.id}/summary`, {
+          headers: {
+            'Authorization': `Bearer ${session?.access_token || ''}`,
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch clinical summary: ${response.status}`);
+        }
+
+        const result = await response.json();
+        setClinicalSummary(result);
+        console.log('📋 Clinical summary loaded:', result);
+      } catch (err) {
+        console.error('Error fetching clinical summary:', err);
+      } finally {
+        setLoadingSummary(false);
+      }
+    };
+
+    // Initial fetch
+    fetchClinicalSummary();
+
+    // Poll for updates every 30 seconds when reports are present
+    const pollInterval = setInterval(fetchClinicalSummary, 30000);
+
+    return () => clearInterval(pollInterval);
+  }, [user?.id, session?.access_token, reports.length]);
+
   if (!chronicConditions || chronicConditions.length === 0 || !selectedCondition) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-blue-50 dark:from-gray-900 dark:to-gray-800">
@@ -126,37 +169,37 @@ const Diagnostic = () => {
       <div className="fixed bottom-6 right-6 z-50">
         <VoiceCommand />
       </div>
-      <div className="container mx-auto px-4 pt-24 pb-16">
+      <div className="container mx-auto px-2 pt-20 pb-8 max-w-6xl">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5 }}
-          className="mb-8"
+          className="mb-4"
         >
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Diagnostic Pathway</h1>
-          <p className="text-gray-600 dark:text-gray-300 mt-2">
-            Interactive visualization of treatment and diagnostic pathways
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Diagnostic Pathway</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+            Interactive visualization of your clinical history and treatment progression
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <div className="md:col-span-2">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1 }}
-              className="glass-panel p-6 h-full"
+              className="glass-panel p-3 h-full"
               id="pathway"
             >
-              <div className="flex flex-wrap items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Condition Pathway</h2>
+              <div className="flex flex-wrap items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Condition Pathway</h2>
 
                 <div className="flex flex-wrap mt-2 sm:mt-0">
                   {chronicConditions.map((condition) => (
                     <button
                       key={condition.id}
                       onClick={() => setSelectedCondition(condition)}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors mr-2 mb-2 sm:mb-0 ${selectedCondition.id === condition.id
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors mr-1.5 mb-1.5 sm:mb-0 ${selectedCondition.id === condition.id
                         ? 'bg-niraiva-600 text-white'
                         : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                         }`}
@@ -168,31 +211,29 @@ const Diagnostic = () => {
                 </div>
               </div>
 
-              <div className="mb-4 glass-card p-4 flex items-start">
-                <Info className="h-5 w-5 text-niraiva-500 mr-3 flex-shrink-0 mt-0.5" />
+              <div className="mb-2 glass-card p-2 flex items-start text-xs">
+                <Info className="h-4 w-4 text-niraiva-500 mr-2 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h3 className="font-medium text-gray-900 dark:text-white mb-1">About this view</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    This interactive pathway diagram visualizes the clinical decision process for {selectedCondition.name}.
-                    Each node represents a key diagnostic or treatment step. You can zoom using pinch gestures or the mouse wheel at any point,
-                    and drag to pan around the diagram. Click on any node to see detailed information.
+                  <h3 className="font-medium text-gray-900 dark:text-white mb-0.5 text-xs">About this view</h3>
+                  <p className="text-xs text-gray-600 dark:text-gray-300 leading-tight">
+                    Pathway diagram for {selectedCondition.name}. Zoom with scroll/pinch, drag to pan, click nodes for details.
                   </p>
                 </div>
               </div>
 
               {reports.length > 0 && (
-                <div className="mb-4 glass-card p-4 flex items-start bg-niraiva-50 dark:bg-niraiva-900/10">
-                  <FileText className="h-5 w-5 text-niraiva-600 mr-3 flex-shrink-0 mt-0.5" />
+                <div className="mb-2 glass-card p-2 flex items-start bg-niraiva-50 dark:bg-niraiva-900/10 text-xs">
+                  <FileText className="h-4 w-4 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
                   <div>
-                    <h3 className="font-medium text-gray-900 dark:text-white mb-1">Enhanced with Reports</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      The pathway visualization has been enhanced with data from {reports.length} uploaded health report(s).
+                    <h3 className="font-medium text-gray-900 dark:text-white mb-0.5 text-xs">Reports</h3>
+                    <p className="text-xs text-gray-600 dark:text-gray-300 leading-tight">
+                      Visualization enhanced with {reports.length} uploaded report(s).
                     </p>
                   </div>
                 </div>
               )}
 
-              <DiagnosticMap nodes={userSpecificNodes} className="mt-6" />
+              <DiagnosticMap nodes={userSpecificNodes} className="mt-3" />
             </motion.div>
           </div>
 
@@ -201,7 +242,7 @@ const Diagnostic = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
-              className="mb-6"
+              className="mb-3"
             >
               <ReportUploader />
             </motion.div>
@@ -210,26 +251,26 @@ const Diagnostic = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.3 }}
-              className="glass-panel p-6"
+              className="glass-panel p-4"
             >
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Patient Summary</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Summary</h2>
 
-              <div className="mb-4">
-                <div className="flex justify-between mb-2">
+              <div className="mb-2">
+                <div className="flex justify-between mb-1 text-xs">
                   <span className="text-gray-600 dark:text-gray-300">ABHA ID</span>
                   <span className="font-medium text-gray-900 dark:text-white">
                     {userProfile?.abha_number || 'Not set'}
                   </span>
                 </div>
 
-                <div className="flex justify-between">
+                <div className="flex justify-between text-xs mb-1">
                   <span className="text-gray-600 dark:text-gray-300">Allergies</span>
                   <span className="font-medium text-gray-900 dark:text-white">
                     {userProfile?.allergies?.length || 0} known
                   </span>
                 </div>
 
-                <div className="flex justify-between mb-2">
+                <div className="flex justify-between mb-1 text-xs">
                   <span className="text-gray-600 dark:text-gray-300">Diagnosis Date</span>
                   <span className="font-medium text-gray-900 dark:text-white">
                     {new Date(selectedCondition.diagnosedDate).toLocaleDateString('en-IN')}
@@ -263,65 +304,82 @@ const Diagnostic = () => {
 
               <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" id="treatment">
                 <h3 className="font-medium text-gray-900 dark:text-white mb-2">Current Treatment</h3>
-                <p className="text-gray-600 dark:text-gray-300 text-sm">
-                  {selectedCondition.id === 'cond-001' ? (
-                    <>Current treatment involves <span className="font-medium">Metformin 500mg twice daily</span> along with lifestyle modifications including diet control and regular exercise.</>
-                  ) : selectedCondition.id === 'cond-002' ? (
-                    <>Currently prescribed <span className="font-medium">Lisinopril 10mg once daily</span> with regular blood pressure monitoring and sodium-restricted diet.</>
-                  ) : (
-                    <>Managing with <span className="font-medium">Atorvastatin 20mg daily</span> alongside dietary modifications focused on reducing saturated fat intake.</>
-                  )}
-                </p>
+                {clinicalSummary?.medications && clinicalSummary.medications.length > 0 ? (
+                  <div className="space-y-2">
+                    {clinicalSummary.medications.map((med: any, idx: number) => (
+                      <p key={idx} className="text-gray-600 dark:text-gray-300 text-sm">
+                        <span className="font-medium">{med.name}</span>
+                        {med.dosage && ` ${med.dosage}`}
+                        {med.frequency && ` - ${med.frequency}`}
+                      </p>
+                    ))}
+                    {clinicalSummary.treatments && clinicalSummary.treatments.length > 0 && (
+                      <p className="text-gray-600 dark:text-gray-300 text-sm border-t pt-2 mt-2">
+                        {clinicalSummary.treatments[0]}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-600 dark:text-gray-300 text-sm">No medications currently recorded. Upload health reports to see treatment information.</p>
+                )}
               </div>
 
               <div id="clinical-notes">
-                <h3 className="font-medium text-gray-900 dark:text-white mb-3">Key Clinical Notes</h3>
+                <h3 className="font-medium text-gray-900 dark:text-white mb-3">Clinical Data from Reports</h3>
 
                 <div className="space-y-3">
-                  <div className="p-3 bg-niraiva-50 dark:bg-niraiva-900/10 rounded-lg border border-niraiva-100 dark:border-niraiva-900/20">
-                    <div className="flex items-start">
-                      <Activity className="h-5 w-5 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-medium text-gray-900 dark:text-white text-sm">Recent Progress</h4>
-                        <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                          {selectedCondition.id === 'cond-001' ? (
-                            <>HbA1c decreased from 7.8% at diagnosis to 6.2% currently, indicating good glycemic control.</>
-                          ) : selectedCondition.id === 'cond-002' ? (
-                            <>Blood pressure reduced from 150/95 mmHg to 128/82 mmHg with current regimen.</>
-                          ) : (
-                            <>LDL cholesterol decreased from 165 mg/dL to 118 mg/dL since treatment initiation.</>
-                          )}
-                        </p>
+                  {/* Parameters from reports */}
+                  {clinicalSummary?.parameters && clinicalSummary.parameters.length > 0 && (
+                    <div className="p-3 bg-niraiva-50 dark:bg-niraiva-900/10 rounded-lg border border-niraiva-100 dark:border-niraiva-900/20">
+                      <div className="flex items-start">
+                        <Activity className="h-5 w-5 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-900 dark:text-white text-sm">Health Parameters</h4>
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            {clinicalSummary.parameters.slice(0, 4).map((param: any, idx: number) => (
+                              <div key={idx} className="text-xs">
+                                <span className="text-gray-600 dark:text-gray-300">{param.name || param.parameter_name}:</span>
+                                <span className="font-medium text-gray-900 dark:text-white ml-1">
+                                  {param.value} {param.unit || ''}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="p-3 bg-niraiva-50 dark:bg-niraiva-900/10 rounded-lg border border-niraiva-100 dark:border-niraiva-900/20">
-                    <div className="flex items-start">
-                      <Activity className="h-5 w-5 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-medium text-gray-900 dark:text-white text-sm">Lifestyle Impact</h4>
-                        <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                          {selectedCondition.id === 'cond-001' ? (
-                            <>Weight reduction of 5kg and improved diet have contributed significantly to better glycemic control.</>
-                          ) : selectedCondition.id === 'cond-002' ? (
-                            <>Sodium restriction and regular exercise have supported pharmacological treatment.</>
-                          ) : (
-                            <>Adoption of Mediterranean diet principles has improved overall lipid profile.</>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {reports.length > 0 ? (
-                    <div className="p-3 bg-niraiva-50 dark:bg-niraiva-900/10 rounded-lg border border-niraiva-100 dark:border-niraiva-900/20 animate-pulse">
+                  {/* Conditions from reports */}
+                  {clinicalSummary?.conditions && clinicalSummary.conditions.length > 0 && (
+                    <div className="p-3 bg-niraiva-50 dark:bg-niraiva-900/10 rounded-lg border border-niraiva-100 dark:border-niraiva-900/20">
                       <div className="flex items-start">
                         <Activity className="h-5 w-5 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="font-medium text-gray-900 dark:text-white text-sm">Report Analysis</h4>
+                          <h4 className="font-medium text-gray-900 dark:text-white text-sm">Conditions from Records</h4>
+                          <div className="mt-1 space-y-1">
+                            {clinicalSummary.conditions.map((cond: any, idx: number) => (
+                              <p key={idx} className="text-xs text-gray-600 dark:text-gray-300">
+                                • {cond.name}
+                                {cond.severity && ` (${cond.severity})`}
+                                {cond.currentStatus && ` - ${cond.currentStatus}`}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Data from uploaded reports */}
+                  {reports.length > 0 ? (
+                    <div className="p-3 bg-niraiva-50 dark:bg-niraiva-900/10 rounded-lg border border-niraiva-100 dark:border-niraiva-900/20">
+                      <div className="flex items-start">
+                        <FileText className="h-5 w-5 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="font-medium text-gray-900 dark:text-white text-sm">Latest Uploads</h4>
                           <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                            Analysis of {reports.length} uploaded report(s) suggests {selectedCondition.severity === 'mild' ? 'continued improvement' : 'treatment adjustment may be beneficial'}. Detailed clinical review recommended.
+                            {reports.length} report(s) uploaded. Last updated: {clinicalSummary?.lastUpdated ? new Date(clinicalSummary.lastUpdated).toLocaleDateString('en-IN') : 'N/A'}
                           </p>
                         </div>
                       </div>
@@ -329,17 +387,11 @@ const Diagnostic = () => {
                   ) : (
                     <div className="p-3 bg-niraiva-50 dark:bg-niraiva-900/10 rounded-lg border border-niraiva-100 dark:border-niraiva-900/20">
                       <div className="flex items-start">
-                        <Activity className="h-5 w-5 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
+                        <FileText className="h-5 w-5 text-niraiva-600 mr-2 flex-shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="font-medium text-gray-900 dark:text-white text-sm">Next Steps</h4>
+                          <h4 className="font-medium text-gray-900 dark:text-white text-sm">Upload Health Reports</h4>
                           <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">
-                            {selectedCondition.id === 'cond-001' ? (
-                              <>Scheduled for annual diabetic retinopathy screening in next 2 months.</>
-                            ) : selectedCondition.id === 'cond-002' ? (
-                              <>Plan to assess renal function in upcoming visit to evaluate medication dosing.</>
-                            ) : (
-                              <>Consider additional therapy if LDL target not achieved in 3 months.</>
-                            )}
+                            No reports uploaded yet. Upload health reports to see clinical data extracted from your medical records.
                           </p>
                         </div>
                       </div>

@@ -17,6 +17,7 @@ const Timeline = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredEvents, setFilteredEvents] = useState<any[]>([]);
   const [activeChatEvent, setActiveChatEvent] = useState<any>(null);
+  const [chatKey, setChatKey] = useState(0);
 
   // Verify Context is available
   useEffect(() => {
@@ -25,8 +26,9 @@ const Timeline = () => {
 
   const handleOpenChat = (event: any) => {
     console.log('🎯 Timeline: handleOpenChat called with event:', event);
+    setChatKey(prev => prev + 1); // Force remount
     setActiveChatEvent(event);
-    console.log('✅ Timeline: activeChatEvent state updated');
+    console.log('✅ Timeline: activeChatEvent state updated with chatKey increment');
   };
 
   useEffect(() => {
@@ -190,7 +192,7 @@ const Timeline = () => {
         </div>
       </main>
 
-      <TimelineAssistant eventContext={activeChatEvent} />
+      <TimelineAssistant key={chatKey} eventContext={activeChatEvent} />
     </div>
   );
 };

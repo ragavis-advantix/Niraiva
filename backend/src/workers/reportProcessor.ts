@@ -13,6 +13,7 @@ import { MultiLLMService } from '../services/MultiLLMService';
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
+import { eventExtractionService } from '../modules/diagnostic-pathway/EventExtractionService';
 
 const POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL || '5000'); // 5 seconds
 const MAX_CONCURRENT_JOBS = parseInt(process.env.WORKER_MAX_CONCURRENT || '3');
@@ -237,6 +238,131 @@ async function processAIParseJob(job: any) {
 
     if (insertError) {
         throw new Error(`Failed to save parsed report: ${insertError.message}`);
+    }
+
+    // 📊 Sync Health Snapshot
+    try {
+        const patientId = job.reports.patient_id;
+        console.log(`🔄 Syncing health snapshot for user: ${patientId}`);
+        const { data: existing } = await supabase
+            .from('patient_health_snapshot')
+            .select('*')
+            .eq('patient_id', patientId)
+            .maybeSingle();
+
+        const data = (parsed as any).data || parsed;
+        const parsedParams = data.parameters || data.tests || [];
+
+        // Robust condition extractor (Canonical Mapping)
+        const extractChronicConditions = (p: any): string[] | null => {
+            const list = new Set<string>();
+
+            // 1. Structural checks
+            const checkField = (f: any) => {
+                if (!f) return;
+                if (Array.isArray(f)) {
+                    f.forEach(c => {
+                        const name = typeof c === 'string' ? c : (c.name || c.condition || c.diagnosis);
+                        if (name && typeof name === 'string') list.add(name);
+                    });
+                } else if (typeof f === 'object') {
+                    const name = f.name || f.condition || f.diagnosis;
+                    if (name && typeof name === 'string') list.add(name);
+                }
+            };
+
+            checkField(p.conditions);
+            checkField(p.diagnosis);
+            checkField(p.chronic_conditions);
+            checkField(p.clinical_diagnosis);
+
+            // 2. Keyword/Heuristic checks in blobs of text
+            const textSource = [
+                p.summary,
+                p.assessment,
+                p.conclusions,
+                p.clinical_notes,
+                p.interpretation
+            ].filter(s => typeof s === 'string').join(' ').toLowerCase();
+
+            if (textSource.includes("neuropathy")) list.add("Peripheral Neuropathy");
+            if (textSource.includes("prediabetic") || textSource.includes("pre-diabetic")) list.add("Pre-diabetes");
+            if (textSource.includes("diabetes") || textSource.includes("diabetic")) {
+                if (!textSource.includes("pre")) list.add("Diabetes Mellitus");
+            }
+            if (textSource.includes("hypertension") || textSource.includes("high blood pressure")) list.add("Hypertension");
+            if (textSource.includes("hypothyroid")) list.add("Hypothyroidism");
+            if (textSource.includes("hyperlipid") || textSource.includes("cholesterol")) list.add("Dyslipidemia");
+
+            return list.size > 0 ? Array.from(list) : null;
+        };
+
+        const parsedConditions = extractChronicConditions(data);
+
+        const findParam = (names: string[]) => {
+            const p = parsedParams.find((p: any) => {
+                const pName = (p.name || p.parameter || "").toLowerCase();
+                return names.some(n => pName.includes(n));
+            });
+            if (!p || p.value === null || p.value === undefined) return null;
+            const val = typeof p.value === 'number' ? p.value : parseFloat(String(p.value));
+            return isNaN(val) ? null : val;
+        };
+
+        const systolic = findParam(['systolic blood pressure', 'systolic bp']);
+        const diastolic = findParam(['diastolic blood pressure', 'diastolic bp']);
+        const heart_rate = findParam(['heart rate', 'pulse']);
+        const spo2 = findParam(['oxygen saturation', 'spo2']);
+        const temperature = findParam(['temperature', 'body temperature']);
+        const hba1c = findParam(['hba1c', 'hb a1c']);
+        const ldl = findParam(['ldl cholesterol', 'ldl']);
+        const b12 = findParam(['vitamin b12', 'b12']);
+
+        // Merge logic
+        const existingConditions = existing?.chronic_conditions || [];
+        const mergedConditions = parsedConditions !== null
+            ? Array.from(new Set([...existingConditions, ...parsedConditions]))
+            : existingConditions;
+
+        const updatedSnapshot: any = {
+            patient_id: patientId,
+            systolic_bp: systolic ?? existing?.systolic_bp,
+            diastolic_bp: diastolic ?? existing?.diastolic_bp,
+            heart_rate: heart_rate ?? existing?.heart_rate,
+            spo2: spo2 ?? existing?.spo2,
+            temperature: temperature ?? existing?.temperature,
+            hba1c: hba1c ?? existing?.hba1c,
+            ldl: ldl ?? existing?.ldl,
+            vitamin_b12: b12 ?? existing?.vitamin_b12,
+
+            // UPDATE: Accumulate conditions instead of replacing
+            chronic_conditions: mergedConditions,
+
+            source_report_id: job.report_id,
+            last_updated: new Date().toISOString()
+        };
+
+        const hasNewData = [systolic, diastolic, heart_rate, spo2, temperature, hba1c, ldl, b12].some(v => v !== null) || parsedConditions !== null;
+
+        if (hasNewData) {
+            await supabase.from('patient_health_snapshot').upsert(updatedSnapshot);
+            console.log(`✅ Health snapshot updated for user: ${patientId}`);
+        }
+    } catch (snapErr: any) {
+        console.warn(`⚠️ Failed to sync health snapshot: ${snapErr.message}`);
+    }
+
+    // 🏥 Extract Clinical Events for Diagnostic Pathway
+    try {
+        console.log(`🔍 Extracting clinical events for report ${job.report_id}...`);
+        await eventExtractionService.processReportEvents(
+            job.reports.patient_id,
+            job.report_id,
+            parsed
+        );
+    } catch (eventErr: any) {
+        console.error(`⚠️ Failed to extract clinical events: ${eventErr.message}`);
+        // Continue - don't fail the whole job for this
     }
 
     // Update report status

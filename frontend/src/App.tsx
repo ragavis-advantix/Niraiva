@@ -11,7 +11,7 @@ import TimelineAssistant from '@/components/TimelineAssistant';
 import LandingPage from "./pages/LandingPage";
 import Dashboard from "./apps/patient/pages/Dashboard";
 import Timeline from "./apps/patient/pages/Timeline";
-import Diagnostic from "./apps/patient/pages/Diagnostic";
+import DiagnosticPathwayPage from "./pages/DiagnosticPathwayPage";
 import Profile from "./apps/patient/pages/Profile";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -164,7 +164,7 @@ const AppRoutes = () => {
           path="/patient/diagnostic"
           element={
             <ProtectedRoute>
-              <Diagnostic />
+              <DiagnosticPathwayPage />
             </ProtectedRoute>
           }
         />

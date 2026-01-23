@@ -56,12 +56,30 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Logging
+// 🔴 ENHANCED LOGGING MIDDLEWARE - Tracks all requests and responses
 app.use((req, res, next) => {
-    console.log(`📡 ${req.method} ${req.path}`, {
-        origin: req.get('origin'),
-        auth: req.get('authorization') ? 'present' : 'missing',
+    const startTime = Date.now();
+    const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Log incoming request with full details
+    console.log(`\n📥 [${requestId}] >>> ${req.method.toUpperCase()} ${req.path}`);
+    console.log(`   Headers:`, {
+        'content-type': req.get('content-type'),
+        'auth': req.get('authorization') ? '✅ Bearer' : '❌ None',
+        'origin': req.get('origin'),
     });
+    if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {
+        console.log(`   Body keys:`, Object.keys(req.body));
+    }
+
+    // Track response
+    const originalEnd = res.end;
+    res.end = function (...args: any[]) {
+        const duration = Date.now() - startTime;
+        console.log(`📤 [${requestId}] <<< ${res.statusCode} (${duration}ms)`);
+        originalEnd.apply(res, args);
+    };
+
     next();
 });
 
@@ -134,6 +152,14 @@ console.log("✅ /api/doctor, /api/user, and /api/timeline routes registered");
 import chatRouter from "./routes/chat";
 app.use("/api/chat", verifyToken, chatRouter);
 console.log("✅ /api/chat routes registered");
+
+import diagnosticPathwayRouter from "./routes/diagnostic-pathway";
+app.use("/api/diagnostic-pathway", verifyToken, diagnosticPathwayRouter);
+console.log("✅ /api/diagnostic-pathway routes registered");
+
+import backfillRouter from "./routes/backfill";
+app.use("/api/backfill", backfillRouter);  // No auth - one-time admin operation
+console.log("✅ /api/backfill routes registered");
 
 // ABHA-specific error handler (must be after ABHA routes)
 import { abhaErrorHandler } from "./middleware/errorHandler";

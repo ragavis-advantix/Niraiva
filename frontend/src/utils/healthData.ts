@@ -3,6 +3,7 @@
 export interface UserProfile {
   id: string;
   user_id: string;
+  full_name?: string | null;
   first_name?: string | null;
   middle_name?: string | null;
   last_name?: string | null;
