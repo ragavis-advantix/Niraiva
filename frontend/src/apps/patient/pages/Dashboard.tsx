@@ -560,15 +560,15 @@ const Dashboard = () => {
 
           {/* Chronic Conditions Section */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.25 }} className="bg-white dark:bg-dark-card rounded-xl shadow-sm border border-gray-100 dark:border-dark-cardBorder p-4 md:p-6 mb-5 transition-colors duration-300">
-            <div className="mb-6">
-              <h2 className="text-xl font-semibold mb-2 text-light-text dark:text-dark-text">Chronic Conditions</h2>
-              <p className="text-sm text-light-subtext dark:text-dark-subtext">Ongoing medical conditions requiring management</p>
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold mb-1 text-light-text dark:text-dark-text">Chronic Conditions</h2>
+              <p className="text-xs text-light-subtext dark:text-dark-subtext">Ongoing medical conditions requiring management</p>
             </div>
 
             {/* Main Conditions Grid */}
             {derivedData?.conditions && derivedData.conditions.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                {derivedData.conditions.slice(0, 6).map((cond: any, idx: number) => {
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
+                {derivedData.conditions.slice(0, 8).map((cond: any, idx: number) => {
                   const severity = (cond.severity as string | undefined)?.toLowerCase() || 'mild';
                   const isSevere = severity === 'severe';
                   const isModerate = severity === 'moderate';
@@ -591,42 +591,42 @@ const Dashboard = () => {
                   return (
                     <div
                       key={cond.id || cond.name || idx}
-                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow"
+                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 hover:shadow-md transition-shadow"
                     >
                       {/* Header: Name + Severity Badge */}
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <h3 className="font-semibold text-gray-900 dark:text-white flex-1 leading-tight">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <h3 className="font-medium text-xs text-gray-900 dark:text-white flex-1 leading-tight">
                           {cond.name}
                         </h3>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 ${severityColor}`}>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap flex-shrink-0 ${severityColor}`}>
                           {severity.charAt(0).toUpperCase() + severity.slice(1)}
                         </span>
                       </div>
 
                       {/* Status */}
-                      <div className="mb-3">
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Status</div>
-                        <div className={`text-sm font-medium ${statusColor}`}>
+                      <div className="mb-2">
+                        <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Status</div>
+                        <div className={`text-xs font-medium ${statusColor}`}>
                           {statusLabel}
                         </div>
                       </div>
 
                       {/* Related Parameters (if any) */}
                       {Array.isArray(cond.relatedParameters) && cond.relatedParameters.length > 0 && (
-                        <div className="mb-3">
-                          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Tracked Parameters</div>
+                        <div className="mb-2">
+                          <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1">Tracked Parameters</div>
                           <div className="flex flex-wrap gap-1">
-                            {cond.relatedParameters.slice(0, 2).map((p: string, i: number) => (
+                            {cond.relatedParameters.slice(0, 1).map((p: string, i: number) => (
                               <span
                                 key={i}
-                                className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded text-xs"
+                                className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded text-[10px]"
                               >
                                 {p}
                               </span>
                             ))}
-                            {cond.relatedParameters.length > 2 && (
-                              <span className="px-2 py-0.5 text-xs text-gray-500 dark:text-gray-400">
-                                +{cond.relatedParameters.length - 2} more
+                            {cond.relatedParameters.length > 1 && (
+                              <span className="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                                +{cond.relatedParameters.length - 1} more
                               </span>
                             )}
                           </div>
@@ -635,7 +635,7 @@ const Dashboard = () => {
 
                       {/* Diagnosed Date */}
                       {cond.diagnosedDate && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-2 mt-2">
+                        <div className="text-[10px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-1.5 mt-1.5">
                           Since{' '}
                           {new Date(cond.diagnosedDate).toLocaleDateString('en-IN', {
                             month: 'short',
