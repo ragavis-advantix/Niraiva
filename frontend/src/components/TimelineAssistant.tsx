@@ -23,6 +23,7 @@ interface ChatResponse {
     suggestedFollowUps?: string[];
     currentTopic?: string;
     disclaimer?: string;
+    error?: string;
 }
 
 const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) => {
@@ -115,16 +116,20 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
         setIsTyping(true); // STEP 9: Start typing indicator
 
         try {
-            // CRITICAL FIX: Extract parameters from event context
-            // Frontend MUST send exact structured data to backend
-            const parameters = eventContext.metadata?.report_json?.data?.parameters ||
-                eventContext.parameters ||
-                [];
+            // 🔴 CRITICAL: Extract FULL context from event context
+            const reportData = eventContext.metadata?.report_json?.data ||
+                eventContext.metadata?.report_json ||
+                {};
+
+            const parameters = reportData.parameters || eventContext.parameters || [];
+            const medications = reportData.medications || [];
+            const conditions = reportData.conditions || [];
 
             console.log('📤 Sending to chat API:', {
                 timelineEventId: eventContext.id,
                 parametersCount: parameters.length,
-                parameterNames: parameters.map((p: any) => p.name || p.parameter_name)
+                medicationsCount: medications.length,
+                conditionsCount: conditions.length
             });
 
             // 2. Call Backend API (Streaming) with AbortSignal and CORRECT URL
@@ -142,6 +147,8 @@ const TimelineAssistant: React.FC<TimelineAssistantProps> = ({ eventContext }) =
                     sessionId: chatSessionId,
                     // CRITICAL: Send parameters as single source of truth
                     parameters: parameters,
+                    medications: medications,
+                    conditions: conditions,
                     // Also send summary flags if available
                     summaryFlags: eventContext.metadata?.summary_flags || {}
                 }),

@@ -49,14 +49,14 @@ router.post('/timeline/stream', async (req, res) => {
     });
 
     try {
-        const { patientId, timelineEventId, question, sessionId, parameters, summaryFlags } = req.body;
+        const { patientId, timelineEventId, question, sessionId, parameters, medications, conditions, summaryFlags } = req.body;
 
         if (!patientId || !timelineEventId || !question) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // CRITICAL: Log parameter receipt
-        console.log(`📊 [ChatRoute] Parameters received: ${parameters?.length || 0} values`);
+        // CRITICAL: Log context receipt
+        console.log(`📊 [ChatRoute] Context received: Params(${parameters?.length || 0}), Meds(${medications?.length || 0}), Conds(${conditions?.length || 0})`);
         if (parameters?.length > 0) {
             console.log(`  → ${parameters.map((p: any) => `${p.name || p.parameter_name}(${p.status})`).join(', ')}`);
         }
@@ -77,6 +77,8 @@ router.post('/timeline/stream', async (req, res) => {
             question,
             sessionId,
             parameters, // Frontend's data becomes source of truth
+            medications,
+            conditions,
             summaryFlags
         );
 

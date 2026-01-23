@@ -214,12 +214,14 @@ You are a medical document analyzer. Convert this text into EXACTLY one JSON fol
 
 RULES FOR parameters in data:
 - ONLY include parameters that have actual values found in the document.
-- DO NOT include parameters where the value is "N/A", "unknown", or not mentioned.
 - EXPLICITLY extract all Vital Signs: Blood Pressure (Systolic and Diastolic), Heart Rate (Pulse), SpO2 (Oxygen Saturation), and Body Temperature.
-- Blood Pressure can be "120/80" or separate "Systolic BP" and "Diastolic BP".
 - ALWAYS extract diabetic markers if present: HbA1c, Fasting Blood Sugar, Post-Prandial Blood Sugar.
-- Capture Lipid profile: Total Cholesterol, LDL, HDL, Triglycerides.
+- ALWAYS extract Vitamin levels if present: Vitamin B12, Vitamin D3, etc.
+- ALWAYS extract Kidney and Liver markers: Creatinine, GFR, Urea, ALT, AST, Bilirubin.
+- ALWAYS extract CBC markers: Hemoglobin, WBC count, Platelets.
+- Blood Pressure should be captures as "Blood Pressure" (e.g. "120/80") or split into "Systolic" and "Diastolic".
 - If a value is mentioned but not explicitly labeled as normal/high, use your medical knowledge to determine the status (normal/warning/critical).
+- NEVER skip a parameter just because it is normal. Include ALL found parameters.
 
 RULES FOR eventInfo:
 - If the report is a blood test → eventType = "test", eventTitle = "Blood Test"

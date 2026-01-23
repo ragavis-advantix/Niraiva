@@ -15,9 +15,9 @@ export type FollowUpType =
 function classifyQuestion(question: string): FollowUpType | "blocked" {
     const q = question.toLowerCase();
 
-    // Block diagnostic and treatment questions
-    if (q.includes("do i have") || q.includes("am i sick") || q.includes("cancer")) return "blocked";
-    if (q.includes("should i take") || q.includes("medicine") || q.includes("treatment")) return "blocked";
+    // Block diagnostic and medical advice questions
+    if (q.includes("do i have") || q.includes("am i sick") || q.includes("diagnose")) return "blocked";
+    if (q.includes("should i take") || q.includes("is this treatment good")) return "blocked";
 
     // Allowable categories
     if (q.includes("what does") || q.includes("mean") || q.includes("explain")) return "parameter_explanation";
@@ -53,7 +53,7 @@ function extractRelevantContext(reportData: any, userQuestion: string): any {
     // Find key findings (abnormal values)
     const keyFindings = (reportData.parameters || reportData.tests || [])
         .filter((p: any) => p.status === 'high' || p.status === 'low' || p.status === 'abnormal' || p.flag === 'abnormal')
-        .slice(0, 5)
+        .slice(0, 20)
         .map((p: any) => ({
             name: p.name || p.parameter_name,
             value: p.value,
@@ -64,7 +64,7 @@ function extractRelevantContext(reportData: any, userQuestion: string): any {
     // Find normal findings
     const normalFindings = (reportData.parameters || reportData.tests || [])
         .filter((p: any) => p.status === 'normal' || p.flag === 'normal' || !p.status)
-        .slice(0, 3)
+        .slice(0, 20)
         .map((p: any) => ({
             name: p.name || p.parameter_name,
             value: p.value,
@@ -77,7 +77,7 @@ function extractRelevantContext(reportData: any, userQuestion: string): any {
         keyFindings,
         normalFindings,
         conditions: reportData.conditions || [],
-        medications: (reportData.medications || []).slice(0, 3)
+        medications: reportData.medications || []
     };
 }
 
@@ -563,8 +563,10 @@ ${JSON.stringify(trendHistory, null, 2)}`;
         timelineEventId: string,
         userQuestion: string,
         sessionId?: string,
-        // CRITICAL FIX: Accept parameters from frontend as single source of truth
+        // CRITICAL FIX: Accept FULL context from frontend
         providedParameters?: any[],
+        providedMedications?: any[],
+        providedConditions?: any[],
         summaryFlags?: any
     ) {
         let currentSessionId = sessionId;
@@ -600,16 +602,19 @@ ${JSON.stringify(trendHistory, null, 2)}`;
             return;
         }
 
-        // CRITICAL FIX: Use provided parameters as PRIMARY source of truth
-        // NEVER re-fetch or guess if frontend sends parameters
+        // CRITICAL FIX: Use provided context as PRIMARY source of truth
         let context: any = null;
         let history: any[] = [];
         let event: any = null;
 
-        if (providedParameters && providedParameters.length > 0) {
-            // Frontend sent parameters - use them directly
-            console.log(`[Success] [ChatStream] Using parameters from frontend: ${providedParameters.length} values`);
-            context = { parameters: providedParameters };
+        if (providedParameters || providedMedications || providedConditions) {
+            // Frontend sent context - use it directly
+            console.log(`[Success] [ChatStream] Using context from frontend: Params(${providedParameters?.length || 0}), Meds(${providedMedications?.length || 0}), Conds(${providedConditions?.length || 0})`);
+            context = {
+                parameters: providedParameters || [],
+                medications: providedMedications || [],
+                conditions: providedConditions || []
+            };
         } else {
             // Fallback only if frontend didn't send parameters
             console.log(`[Warn] [ChatStream] No parameters from frontend, attempting to fetch...`);
@@ -674,13 +679,23 @@ Be warm, conversational, and supportive. Personalize with patient's medical hist
 PATIENT PROFILE:
 Age: ${patientContext.patient.age || 'Unknown'}
 Gender: ${patientContext.patient.gender || 'Unknown'}
-KNOWN CONDITIONS: ${patientContext.patient.known_conditions?.join(', ') || 'None'}
+
+CURRENT REPORT DATA:
+MEDICATIONS: ${context.medications?.length > 0
+                ? context.medications.map((m: any) => `${m.name} (${m.dosage || 'dose unknown'})`).join(', ')
+                : 'None listed in this report'}
+CONDITIONS: ${context.conditions?.length > 0
+                ? context.conditions.map((c: any) => typeof c === 'string' ? c : (c.name || c.condition_name)).join(', ')
+                : 'None listed in this report'}
 
 ATTENTION: VALUES NEEDING ATTENTION (${warningParameters.length}):
 ${warningParameters.length > 0 ?
-                warningParameters.map((p: any) => `${p.name || p.parameter_name}: Status is ${p.status}`).join('\n')
+                warningParameters.map((p: any) => `${p.name || p.parameter_name}: Status is ${p.status} (Value: ${p.value} ${p.unit || ''})`).join('\n')
                 : 'No abnormal values'
             }
+
+FULL PARAMETER LIST:
+${context.parameters?.map((p: any) => `${p.name || p.parameter_name}: ${p.value} ${p.unit || ''} (${p.status})`).join('\n')}
 
 ${patientContextSummary}
 `;
