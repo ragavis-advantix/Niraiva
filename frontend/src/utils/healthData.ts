@@ -76,6 +76,10 @@ export interface TimelineEvent {
   status: "completed" | "pending" | "missed" | "active";
   highlight?: boolean;
   source_file_id?: string;
+  // NEW: Clinical event date fields for proper timeline ordering
+  clinical_event_date?: string; // ISO DATE (YYYY-MM-DD): actual medical event date
+  report_date?: string;         // ISO DATE: report/document creation date
+  upload_date?: string;         // ISO TIMESTAMP: when report was uploaded
   eventInfo?: {
     eventType: "test" | "diagnosis" | "treatment" | "medication" | "appointment" | "profile" | "other";
     status: "completed" | "pending";

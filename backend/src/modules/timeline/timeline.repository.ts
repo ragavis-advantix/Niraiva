@@ -42,13 +42,18 @@ export const timelineRepository = {
 
     /**
      * Find events by patient ID
+     * Orders by clinical_event_date (actual medical event date) first,
+     * then falls back to upload_date for records without extracted dates
      */
     async findByPatientId(patientId: string, limit: number = 50, offset: number = 0) {
         const { data, error } = await supabase
             .from('timeline_events')
             .select('*')
             .eq('patient_id', patientId)
-            .order('event_time', { ascending: false })
+            // Primary sort: clinical event date (actual medical date) - nulls last
+            .order('clinical_event_date', { ascending: false, nullsFirst: false })
+            // Secondary sort: upload date (for records without clinical date)
+            .order('upload_date', { ascending: false })
             .range(offset, offset + limit - 1);
 
         if (error) throw error;

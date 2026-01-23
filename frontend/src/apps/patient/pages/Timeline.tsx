@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import { getApiBaseUrl } from '@/lib/fhir';
+import { groupTimelineByDate, formatTimelineDate } from '@/lib/timelineDate';
 
 const Timeline = () => {
   const { user, session } = useAuth();
@@ -110,14 +111,30 @@ const Timeline = () => {
                     <div className="w-10 h-10 border-2 border-niraiva-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
                   </div>
                 ) : filteredEvents.length > 0 ? (
-                  <div className="space-y-0">
-                    {filteredEvents.map((event, index) => (
-                      <TimelineEvent
-                        key={event.id}
-                        event={event}
-                        isLast={index === filteredEvents.length - 1}
-                        onOpenChat={() => handleOpenChat(event)}
-                      />
+                  <div className="space-y-8">
+                    {Array.from(groupTimelineByDate(filteredEvents).entries()).map(([dateStr, eventsForDate]) => (
+                      <div key={dateStr}>
+                        {/* Date Header */}
+                        <div className="flex items-center gap-3 mb-6 sticky top-24 bg-[#F8FAFC] dark:bg-gray-950 py-2 z-10">
+                          <CalendarIcon className="w-5 h-5 text-niraiva-600" />
+                          <h2 className="text-sm font-black text-slate-700 dark:text-slate-300 uppercase tracking-widest">
+                            {formatTimelineDate({ event_time: dateStr } as any, 'EEEE, MMMM dd, yyyy')}
+                          </h2>
+                          <div className="h-px flex-grow bg-gradient-to-r from-slate-200 to-transparent dark:from-slate-700" />
+                        </div>
+
+                        {/* Events for this date */}
+                        <div className="space-y-0 mb-6">
+                          {eventsForDate.map((event, index) => (
+                            <TimelineEvent
+                              key={event.id}
+                              event={event}
+                              isLast={index === eventsForDate.length - 1}
+                              onOpenChat={() => handleOpenChat(event)}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 ) : (

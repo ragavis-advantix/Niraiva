@@ -3,6 +3,7 @@ import multer from "multer";
 import Tesseract from "tesseract.js";
 import { getSupabaseAdminClient, getSupabaseClient } from "../lib/supabaseClient";
 import { MultiLLMService } from "../services/MultiLLMService";
+import { extractClinicalDates, resolvePrimaryClinicialDate, logDateExtraction } from "../lib/clinicalDateExtraction";
 import fs from "fs";
 import path from "path";
 
@@ -519,7 +520,17 @@ ${cleanedText}
                         const eventStatus = eventInfo.status || 'completed';
                         const eventTime = new Date().toISOString();
 
+                        // 🔑 CRITICAL: Extract clinical event dates from parsed report
+                        const parsedText = String(aiJSON?.text || '');
+                        const extractedDates = extractClinicalDates(parsedText, aiJSON);
+                        const clinicalEventDate = resolvePrimaryClinicialDate(extractedDates);
+                        const reportDate = extractedDates.reportDate || extractedDates.labDate;
+
+                        // Log for debugging
+                        logDateExtraction(reportData.id, extractedDates, clinicalEventDate, !clinicalEventDate);
+
                         debugLog(`📅 Creating timeline event: "${title}" (${eventType})`);
+                        debugLog(`📅 Dates - Clinical: ${clinicalEventDate}, Report: ${reportDate}, Upload: ${eventTime}`);
 
                         const { error: timelineError } = await supabaseAdmin.from('timeline_events').insert([{
                             patient_id: user.id,
@@ -529,6 +540,10 @@ ${cleanedText}
                             status: eventStatus,
                             event_time: eventTime,
                             source_report_id: reportData.id,
+                            // NEW: Add clinical event dates for proper timeline ordering
+                            clinical_event_date: clinicalEventDate,
+                            report_date: reportDate,
+                            upload_date: new Date(eventTime),
                             metadata: { report_json: aiJSON }
                         }]);
 
@@ -545,8 +560,10 @@ ${cleanedText}
                             console.log(`📊 Inserting ${aiJSON.data.parameters.length} health parameters...`);
                             debugLog(`📊 Processing ${aiJSON.data.parameters.length} health parameters...`);
 
-                            // Use documentDate if available, otherwise eventTime
-                            const measuredAt = aiJSON.metadata?.documentDate ? new Date(aiJSON.metadata.documentDate).toISOString() : eventTime;
+                            // Use clinicalEventDate if available, otherwise reportDate, otherwise eventTime
+                            const measuredAt = clinicalEventDate
+                                ? new Date(clinicalEventDate).toISOString()
+                                : (reportDate ? new Date(reportDate).toISOString() : eventTime);
 
                             const parametersToInsert = aiJSON.data.parameters.map((param: any) => ({
                                 user_id: user.id,

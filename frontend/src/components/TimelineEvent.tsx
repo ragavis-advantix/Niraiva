@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import HealthParametersModal from './HealthParametersModalNew';
+import { getDisplayDate, getDateSource, getDateSourceLabel, isDateInferred } from '@/lib/timelineDate';
 
 interface TimelineEventProps {
   event: any;
@@ -13,8 +14,14 @@ interface TimelineEventProps {
 const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false, onOpenChat }) => {
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Extract date in YYYY-MM-DD format
-  const eventDate = new Date(event.event_time).toISOString().split('T')[0];
+  // Use clinical event date if available, otherwise report date, otherwise upload date
+  const displayDate = getDisplayDate(event);
+  const dateSource = getDateSource(event);
+  const dateSourceLabel = getDateSourceLabel(dateSource);
+  const isInferred = isDateInferred(event);
+
+  // Extract date in YYYY-MM-DD format for fetching parameters
+  const eventDate = displayDate ? displayDate.split('T')[0] : new Date(event.event_time).toISOString().split('T')[0];
 
   const category = event.event_type || 'note';
   const status = event.status || 'completed';
@@ -57,19 +64,32 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false, on
         >
           <div className="flex flex-col space-y-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-                {new Date(event.event_time).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric'
-                })}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                  {displayDate ? new Date(displayDate).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric'
+                  }) : 'Unknown Date'}
+                </span>
+                {isInferred && (
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-900/30 group cursor-help">
+                    <AlertCircle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                    <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide hidden group-hover:inline">
+                      Inferred
+                    </span>
+                    <div className="hidden group-hover:block absolute bottom-full left-0 mb-2 px-2 py-1 bg-slate-900 dark:bg-slate-700 text-white text-[9px] rounded whitespace-nowrap z-20">
+                      {dateSourceLabel}
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-3">
                 <span className={cn(
                   "text-[10px] font-black uppercase tracking-widest",
-                  status === 'completed' ? "text-[#10B981]" : "text-[#F59E0B]"
+                  event.status === 'completed' ? "text-[#10B981]" : "text-[#F59E0B]"
                 )}>
-                  {status}
+                  {event.status || 'completed'}
                 </span>
                 <div className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-black uppercase tracking-widest">
                   {category}
