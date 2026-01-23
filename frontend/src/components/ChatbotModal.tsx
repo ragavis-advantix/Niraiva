@@ -246,10 +246,11 @@ export const ChatbotModal: React.FC = () => {
                         )}
                     </div>
 
-                    {/* ===== INPUT AREA (ALWAYS ENABLED) ===== */}
-                    <div className="border-t border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-slate-900 rounded-b-xl">
-                        <div className="flex gap-2">
-                            {/* FIX 3: Input ALWAYS enabled and responsive - NEVER disable even while loading */}
+                    {/* ===== INPUT AREA (ALWAYS ENABLED AND PROMINENT) ===== */}
+                    <div className="border-t border-gray-200 dark:border-gray-800 p-4 bg-white dark:bg-slate-900 rounded-b-xl space-y-3">
+                        {/* CRITICAL: Input field MUST be visible and responsive */}
+                        <div className="flex gap-2 items-stretch">
+                            {/* FIX 3: Input ALWAYS enabled, auto-focused, and ALWAYS visible */}
                             <input
                                 ref={inputRef}
                                 type="text"
@@ -262,36 +263,45 @@ export const ChatbotModal: React.FC = () => {
                                     }
                                 }}
                                 autoFocus
-                                placeholder="Ask about your reports..."
-                                className="flex-1 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm placeholder-gray-400 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition"
+                                placeholder="Type your question here..."
+                                className="flex-1 border-2 border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2.5 text-sm font-medium placeholder-gray-500 dark:bg-slate-800 dark:text-white focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all"
                             />
                             <button
                                 onClick={handleSendMessage}
                                 disabled={!input.trim() || loading}
-                                className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white px-3 py-2 rounded-lg transition text-sm font-medium flex items-center gap-1"
+                                className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg transition-all text-sm font-bold flex items-center gap-1.5 whitespace-nowrap"
+                                title={loading ? "Waiting for response..." : "Send message (or press Enter)"}
                             >
-                                <Send className="w-4 h-4" />
+                                <Send className={`w-4 h-4 ${loading ? 'animate-pulse' : ''}`} />
+                                {loading ? 'Sending...' : 'Send'}
                             </button>
                         </div>
 
-                        {/* FIX 4: Suggestions fill input instead of sending */}
-                        {!messages.length && (
-                            <div className="mt-3 space-y-1.5">
-                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Suggestions:</p>
-                                {["What does this report mean?", "Are these results normal?", "What should I focus on next?"].map((suggestion) => (
-                                    <button
-                                        key={suggestion}
-                                        onClick={() => {
-                                            setInput(suggestion);
-                                            inputRef.current?.focus();
-                                        }}
-                                        className="w-full text-left text-xs px-3 py-1.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-gray-700 rounded text-gray-600 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-slate-700 transition"
-                                    >
-                                        {suggestion}
-                                    </button>
-                                ))}
+                        {/* FIX 4: Suggestions appear BELOW input, not instead of it */}
+                        {messages.length === 0 && (
+                            <div className="space-y-2 mt-2">
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider px-0.5">Quick suggestions:</p>
+                                <div className="grid grid-cols-1 gap-1.5">
+                                    {["What does this report mean?", "Are these results normal?", "What should I focus on next?"].map((suggestion) => (
+                                        <button
+                                            key={suggestion}
+                                            onClick={() => {
+                                                setInput(suggestion);
+                                                setTimeout(() => inputRef.current?.focus(), 50);
+                                            }}
+                                            className="w-full text-left text-xs px-3 py-2 bg-gray-100 dark:bg-slate-800 border border-gray-300 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 hover:bg-teal-100 dark:hover:bg-teal-900/40 hover:border-teal-400 transition-colors font-medium"
+                                        >
+                                            💡 {suggestion}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
+
+                        {/* Helpful hint text */}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 text-center font-medium mt-1">
+                            Type anything or click a suggestion above
+                        </p>
                     </div>
                 </div>
             </div>
