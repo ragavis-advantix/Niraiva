@@ -1,10 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useChat } from '@/contexts/ChatContext';
-import { MessageCircle, Minus, X } from 'lucide-react';
+import { MessageCircle, Minus, X, Send } from 'lucide-react';
 
 export const ChatbotModal: React.FC = () => {
     const { chatState, chatContext, minimizeChat, closeChat, restoreChat } = useChat();
     const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [input, setInput] = useState("");
+    const [messages, setMessages] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
     const dragging = useRef(false);
     const offset = useRef({ x: 0, y: 0 });
     const dragRef = useRef<HTMLDivElement>(null);
@@ -50,6 +54,74 @@ export const ChatbotModal: React.FC = () => {
                 x: e.clientX - rect.left,
                 y: e.clientY - rect.top,
             };
+        }
+    };
+
+    // FIX 3 & 4: Handle message sending
+    const handleSendMessage = async () => {
+        if (!input.trim() || loading) return;
+
+        const question = input.trim();
+        setInput(""); // Clear input immediately
+        setMessages((prev) => [...prev, { role: "user", content: question }]);
+        setLoading(true);
+
+        try {
+            // Send to backend with chat context parameters
+            const response = await fetch('/api/chat/timeline/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    patientId: chatContext?.userId,
+                    timelineEventId: chatContext?.eventId,
+                    question,
+                    parameters: chatContext?.parameters,
+                    summaryFlags: chatContext?.summaryFlags
+                })
+            });
+
+            // Stream the response
+            const reader = response.body?.getReader();
+            let assistantMessage = "";
+
+            if (reader) {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = new TextDecoder().decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.token) {
+                                    assistantMessage += data.token;
+                                    // Update last message in real-time
+                                    setMessages((prev) => {
+                                        const updated = [...prev];
+                                        if (updated[updated.length - 1]?.role === 'assistant') {
+                                            updated[updated.length - 1].content = assistantMessage;
+                                        } else {
+                                            updated.push({ role: 'assistant', content: assistantMessage });
+                                        }
+                                        return updated;
+                                    });
+                                }
+                            } catch (e) {
+                                // Ignore parsing errors
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Chat error:', error);
+            setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, I'm having trouble responding. Please try again." }]);
+        } finally {
+            setLoading(false);
+            inputRef.current?.focus();
         }
     };
 
@@ -132,39 +204,91 @@ export const ChatbotModal: React.FC = () => {
 
                     {/* ===== MESSAGES AREA ===== */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                        <div className="bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-950 dark:to-cyan-950 rounded-lg p-3 text-sm text-gray-700 dark:text-gray-300">
-                            <p className="font-semibold mb-2">👋 Hello! I'm Niraiva AI.</p>
-                            <p>I can help you understand your health parameters, answer medical questions, and provide personalized insights based on your reports.</p>
-                        </div>
+                        {messages.length === 0 ? (
+                            <>
+                                <div className="bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-950 dark:to-cyan-950 rounded-lg p-3 text-sm text-gray-700 dark:text-gray-300">
+                                    <p className="font-semibold mb-2">👋 Hello! I'm Niraiva AI.</p>
+                                    <p>I can help you understand your health parameters, answer medical questions, and provide personalized insights based on your reports.</p>
+                                </div>
 
-                        {chatContext && (
-                            <div className="bg-blue-50 dark:bg-blue-950 rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400">
-                                <p className="font-medium mb-1">📊 Current Context:</p>
-                                <p>I'm ready to analyze your <strong>{chatContext.source === 'health-parameters' ? 'health parameters' : 'timeline data'}</strong></p>
-                                {chatContext.parameters && (
-                                    <p className="mt-2 text-gray-500 dark:text-gray-500">
-                                        {chatContext.parameters.length} parameters loaded
-                                    </p>
+                                {chatContext && (
+                                    <div className="bg-blue-50 dark:bg-blue-950 rounded-lg p-3 text-xs text-gray-600 dark:text-gray-400">
+                                        <p className="font-medium mb-1">📊 Current Context Ready:</p>
+                                        <p>I have access to your recent reports and health history.</p>
+                                        {chatContext.parameters && (
+                                            <p className="mt-2">{chatContext.parameters.length} parameters loaded</p>
+                                        )}
+                                    </div>
                                 )}
-                            </div>
+                            </>
+                        ) : (
+                            messages.map((msg, idx) => (
+                                <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-xs rounded-lg p-3 ${msg.role === 'user'
+                                            ? 'bg-teal-600 text-white'
+                                            : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+                                        }`}>
+                                        <p className="text-sm">{msg.content}</p>
+                                    </div>
+                                </div>
+                            ))
                         )}
 
-                        <div className="text-xs text-gray-500 text-center py-2">
-                            Messages will appear here
-                        </div>
+                        {loading && (
+                            <div className="flex justify-start">
+                                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3">
+                                    <p className="text-sm text-gray-600 dark:text-gray-400">Thinking...</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
-                    {/* ===== INPUT AREA ===== */}
+                    {/* ===== INPUT AREA (ALWAYS ENABLED) ===== */}
                     <div className="border-t border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-slate-900 rounded-b-xl">
                         <div className="flex gap-2">
+                            {/* FIX 3: Input ALWAYS enabled, auto-focused */}
                             <input
-                                className="flex-1 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm placeholder-gray-400 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                                placeholder="Ask your question..."
+                                ref={inputRef}
+                                type="text"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter' && input.trim()) {
+                                        handleSendMessage();
+                                    }
+                                }}
+                                autoFocus
+                                placeholder="Ask about your reports..."
+                                className="flex-1 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-2 text-sm placeholder-gray-400 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition"
+                                disabled={loading}
                             />
-                            <button className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-2 rounded-lg transition text-sm font-medium">
-                                Send
+                            <button
+                                onClick={handleSendMessage}
+                                disabled={!input.trim() || loading}
+                                className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white px-3 py-2 rounded-lg transition text-sm font-medium flex items-center gap-1"
+                            >
+                                <Send className="w-4 h-4" />
                             </button>
                         </div>
+
+                        {/* FIX 4: Suggestions fill input instead of sending */}
+                        {!messages.length && (
+                            <div className="mt-3 space-y-1.5">
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest px-1">Suggestions:</p>
+                                {["What does this report mean?", "Are these results normal?", "What should I focus on next?"].map((suggestion) => (
+                                    <button
+                                        key={suggestion}
+                                        onClick={() => {
+                                            setInput(suggestion);
+                                            inputRef.current?.focus();
+                                        }}
+                                        className="w-full text-left text-xs px-3 py-1.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-gray-700 rounded text-gray-600 dark:text-gray-300 hover:bg-teal-50 dark:hover:bg-slate-700 transition"
+                                    >
+                                        {suggestion}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

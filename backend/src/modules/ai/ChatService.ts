@@ -338,6 +338,90 @@ export class ChatService {
         return values;
     }
 
+    /**
+     * FIX 1: Build comprehensive patient medical context
+     * Fetches all recent health events, diagnoses, medications
+     * Returns formatted context string for LLM injection
+     */
+    private async buildPatientContext(patientId: string): Promise<string> {
+        try {
+            console.log(`📋 [PatientContext] Building context for patient: ${patientId}`);
+
+            // Fetch last 10 health timeline events
+            const { data: events, error: eventsErr } = await supabase
+                .from('timeline_events')
+                .select(`
+                    id,
+                    event_type,
+                    title,
+                    description,
+                    clinical_event_date,
+                    upload_date,
+                    metadata
+                `)
+                .eq('patient_id', patientId)
+                .order('clinical_event_date', { ascending: false, nullsFirst: false })
+                .limit(10);
+
+            if (eventsErr) {
+                console.warn(`⚠️ [PatientContext] Could not fetch timeline events:`, eventsErr.message);
+            }
+
+            // Build formatted summary
+            let contextStr = `PATIENT MEDICAL HISTORY:
+=====================================\n`;
+
+            if (events && events.length > 0) {
+                contextStr += `Recent Events (last 10):\n`;
+                events.forEach((e: any) => {
+                    const dateStr = e.clinical_event_date || e.upload_date?.split('T')[0] || 'Unknown';
+                    const summary = e.metadata?.report_json?.summary || e.description || e.title;
+                    contextStr += `- ${dateStr} [${e.event_type}]: ${e.title}\n`;
+                    if (summary) contextStr += `  Summary: ${summary.substring(0, 100)}\n`;
+                });
+            } else {
+                contextStr += `No timeline events found.\n`;
+            }
+
+            // Fetch chronic conditions
+            const { data: conditions, error: condErr } = await supabase
+                .from('chronic_conditions')
+                .select('name, status, diagnosed_date')
+                .eq('patient_id', patientId)
+                .order('diagnosed_date', { ascending: false });
+
+            if (!condErr && conditions && conditions.length > 0) {
+                contextStr += `\nKnown Conditions:\n`;
+                conditions.forEach((c: any) => {
+                    contextStr += `- ${c.name} (${c.status || 'active'})\n`;
+                });
+            }
+
+            // Fetch active medications
+            const { data: medications, error: medErr } = await supabase
+                .from('medications')
+                .select('name, dosage, frequency')
+                .eq('patient_id', patientId)
+                .eq('status', 'active');
+
+            if (!medErr && medications && medications.length > 0) {
+                contextStr += `\nCurrent Medications:\n`;
+                medications.forEach((m: any) => {
+                    contextStr += `- ${m.name} ${m.dosage ? `(${m.dosage})` : ''} ${m.frequency ? `- ${m.frequency}` : ''}\n`;
+                });
+            }
+
+            contextStr += `=====================================\n`;
+            console.log(`✅ [PatientContext] Context built: ${contextStr.length} chars`);
+            return contextStr;
+        } catch (err: any) {
+            console.error(`❌ [PatientContext] Error building context:`, err.message);
+            return `PATIENT MEDICAL HISTORY:
+(Unable to fetch - will use event-specific data only)
+`;
+        }
+    }
+
     async processUserMessage(
         patientId: string,
         timelineEventId: string,
@@ -562,6 +646,10 @@ ${JSON.stringify(trendHistory, null, 2)}`;
 
         console.log(`📊 [ChatStream] Parameter analysis: ${context.parameters.length} total | ${warningParameters.length} warnings`);
 
+        // FIX 1: FETCH COMPREHENSIVE PATIENT CONTEXT FROM MEDICAL HISTORY
+        const patientContextSummary = await this.buildPatientContext(patientId);
+        console.log(`✅ [ChatStream] Patient context ready: ${patientContextSummary.length} chars`);
+
         // STEP 3: MEDICAL-GRADE SYSTEM PROMPT (with safety enforcement + conversational tone)
         let systemPrompt = `You are Niraiva, a calm and friendly medical assistant.
 
@@ -575,13 +663,13 @@ ${JSON.stringify(trendHistory, null, 2)}`;
 7. Do NOT repeat numbers or values already visible on the patient's screen.
 8. Write ONLY plain text - no formatting.
 
-RESPONSE STYLE (MANDATORY):
-- Maximum 3-4 short sentences per response
-- One idea per sentence
-- No medical jargon unless patient asks for it
-- Sound like a calm medical assistant, not a report
-- Ask the user to choose if multiple topics exist
-- Be conversational, not clinical
+RESPONSE STRUCTURE (MANDATORY - ALWAYS FOLLOW):
+1. What this means (in simple language)
+2. Is this normal? (yes/no/maybe + brief explanation)
+3. What to do next (gentle suggestions)
+4. Ask ONE follow-up question to keep conversation going
+
+Be warm, conversational, and supportive. Personalize with patient's medical history.
 
 PATIENT PROFILE:
 Age: ${patientContext.patient.age || 'Unknown'}
@@ -594,135 +682,135 @@ ${warningParameters.length > 0 ?
                 : 'No abnormal values'
             }
 
-Question Focus: ${enhancedIntent.type}${enhancedIntent.targetParameter ? ` - ${enhancedIntent.targetParameter}` : ''}`;
+${patientContextSummary}
 
         // IF MULTIPLE WARNINGS AND USER ASKS GENERAL "WHAT DOES THIS MEAN", ASK THEM TO CHOOSE
         if (warningParameters.length > 1 && enhancedIntent.type === "parameter_explanation" && !enhancedIntent.targetParameter) {
-            systemPrompt += `\n\nIMPORTANT: The patient has multiple results that need attention. Instead of explaining all of them, ask them which one they'd like to understand first. Be friendly about it.
+            systemPrompt += `\n\nIMPORTANT: The patient has multiple results that need attention.Instead of explaining all of them, ask them which one they'd like to understand first. Be friendly about it.
 
 Example response:
-"You have a couple of results that need attention - your hemoglobin and kidney values. Which one would you like me to explain first?"`;
+        "You have a couple of results that need attention - your hemoglobin and kidney values. Which one would you like me to explain first?"`;
         } else {
             // Add intent-specific guidance for single parameter or specific intent
             if (enhancedIntent.type === "normality_check") {
-                systemPrompt += `\nTask: Answer whether the results are normal. Be clear and direct in 1-2 sentences.`;
+                systemPrompt += `\nTask: Answer whether the results are normal.Be clear and direct in 1 - 2 sentences.`;
             } else if (enhancedIntent.type === "next_steps") {
-                systemPrompt += `\nTask: Suggest 1-2 gentle, lifestyle-focused next steps. Do not prescribe. Keep it actionable.`;
+                systemPrompt += `\nTask: Suggest 1 - 2 gentle, lifestyle - focused next steps.Do not prescribe.Keep it actionable.`;
             } else if (enhancedIntent.type === "cause_explanation") {
-                systemPrompt += `\nTask: Explain why this value is abnormal in plain language. Connect to daily life if possible.`;
+                systemPrompt += `\nTask: Explain why this value is abnormal in plain language.Connect to daily life if possible.`;
             } else if (enhancedIntent.type === "safety") {
-                systemPrompt += `\nTask: Reassure if safe, or suggest they talk to their doctor if needed. Be calm but clear.`;
+                systemPrompt += `\nTask: Reassure if safe, or suggest they talk to their doctor if needed.Be calm but clear.`;
             } else if (enhancedIntent.type === "parameter_explanation") {
                 systemPrompt += `\nTask: Explain what this value measures and what it means for this patient's health. Keep it simple.`;
             }
-        }
+}
 
-        if (trendHistory) {
-            systemPrompt += `\n\nTrend Information for ${matchedParam.name || matchedParam.parameter_name}:
+if (trendHistory) {
+    systemPrompt += `\n\nTrend Information for ${matchedParam.name || matchedParam.parameter_name}:
 ${JSON.stringify(trendHistory, null, 2)}`;
-        }
+}
 
-        const provider = trendHistory ? "Qwen" : "Mistral";
-        console.log(`📡 [ChatStream] Selecting provider: ${provider} | Intent: ${enhancedIntent.type}`);
+const provider = trendHistory ? "Qwen" : "Mistral";
+console.log(`📡 [ChatStream] Selecting provider: ${provider} | Intent: ${enhancedIntent.type}`);
 
-        let stream;
-        try {
-            stream = await this.llmService.runLLMStream(provider, {
-                systemPrompt,
-                userPrompt: userQuestion,
-                temperature: 0.3
-            });
-        } catch (err: any) {
-            console.error(`❌[ChatStream] LLM Stream initialization failed: `, err);
+let stream;
+try {
+    stream = await this.llmService.runLLMStream(provider, {
+        systemPrompt,
+        userPrompt: userQuestion,
+        temperature: 0.3
+    });
+} catch (err: any) {
+    console.error(`❌[ChatStream] LLM Stream initialization failed: `, err);
             yield { token: `Sorry, I'm having trouble connecting to my AI processor (${provider}).`, sessionId: currentSessionId, done: true };
-            return;
-        }
+    return;
+}
 
-        console.log(`📡 [ChatStream] Stream started`);
+console.log(`📡 [ChatStream] Stream started`);
 
-        let fullContent = "";
-        let buffer = "";
+let fullContent = "";
+let buffer = "";
 
-        // Convert stream to async iterator
-        const reader = stream as any;
+// Convert stream to async iterator
+const reader = stream as any;
 
-        try {
-            for await (const chunk of reader) {
-                const chunkStr = chunk.toString();
-                buffer += chunkStr;
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || ""; // Keep incomplete line in buffer
+try {
+    for await (const chunk of reader) {
+        const chunkStr = chunk.toString();
+        buffer += chunkStr;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed || !trimmed.startsWith('data: ')) continue;
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data: ')) continue;
 
-                    const data = trimmed.slice(6);
-                    if (data === '[DONE]') continue;
+            const data = trimmed.slice(6);
+            if (data === '[DONE]') continue;
 
-                    try {
-                        const json = JSON.parse(data);
-                        const token = json.choices[0]?.delta?.content || json.choices[0]?.text || "";
-                        if (token) {
-                            fullContent += token;
+            try {
+                const json = JSON.parse(data);
+                const token = json.choices[0]?.delta?.content || json.choices[0]?.text || "";
+                if (token) {
+                    fullContent += token;
                             // 🔴 DO NOT SANITIZE INDIVIDUAL TOKENS - only sanitize final response
                             // Sanitizing tokens breaks word spacing and kills spaces
                             yield { token: token, sessionId: currentSessionId };
-                        }
-                    } catch (e) {
-                        // Incomplete JSON or malformed
-                    }
                 }
+            } catch (e) {
+                // Incomplete JSON or malformed
             }
-        } catch (streamErr: any) {
-            console.error(`❌ [ChatStream] Error during stream reading:`, streamErr);
+        }
+    }
+} catch (streamErr: any) {
+    console.error(`❌ [ChatStream] Error during stream reading:`, streamErr);
             yield { token: `\n\n[Communication with AI was interrupted]`, sessionId: currentSessionId };
-        }
+}
 
-        console.log(`✅ [ChatStream] Stream finished. Tokens captured: ${fullContent.length}`);
+console.log(`✅ [ChatStream] Stream finished. Tokens captured: ${fullContent.length}`);
 
-        // STEP 4: Final sanitization on complete response
-        const sanitizedContent = sanitizeResponse(fullContent);
+// STEP 4: Final sanitization on complete response
+const sanitizedContent = sanitizeResponse(fullContent);
 
-        // STEP 6: Generate dynamic follow-up questions based on intent and parameter
-        const suggestedFollowUps = generateFollowUpQuestions(
-            enhancedIntent.targetParameter,
-            patientContext.patient.age,
-            patientContext.patient.known_conditions,
-            enhancedIntent.type
-        );
+// STEP 6: Generate dynamic follow-up questions based on intent and parameter
+const suggestedFollowUps = generateFollowUpQuestions(
+    enhancedIntent.targetParameter,
+    patientContext.patient.age,
+    patientContext.patient.known_conditions,
+    enhancedIntent.type
+);
 
-        // STEP 8: Update response interface with new fields
-        const responseMetadata = {
-            sessionId: currentSessionId,
-            currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
-            suggestedFollowUps,
-            disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
-        };
+// STEP 8: Update response interface with new fields
+const responseMetadata = {
+    sessionId: currentSessionId,
+    currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
+    suggestedFollowUps,
+    disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
+};
 
-        // Final store
-        if (sanitizedContent && persistenceEnabled && currentSessionId) {
-            try {
-                await supabase.from('chat_messages').insert({
-                    session_id: currentSessionId,
-                    role: 'assistant',
-                    content: sanitizedContent,
-                    llm_used: provider,
-                    metadata: responseMetadata
-                });
-            } catch (saveErr: any) {
-                console.warn(`⚠️ [ChatStream] Failed to save assistant response:`, saveErr.message);
-            }
-        }
+// Final store
+if (sanitizedContent && persistenceEnabled && currentSessionId) {
+    try {
+        await supabase.from('chat_messages').insert({
+            session_id: currentSessionId,
+            role: 'assistant',
+            content: sanitizedContent,
+            llm_used: provider,
+            metadata: responseMetadata
+        });
+    } catch (saveErr: any) {
+        console.warn(`⚠️ [ChatStream] Failed to save assistant response:`, saveErr.message);
+    }
+}
 
         // Yield final metadata
         yield {
-            token: "", // Empty token to signal end
-            sessionId: currentSessionId,
+    token: "", // Empty token to signal end
+        sessionId: currentSessionId,
             done: true,
-            suggestedFollowUps,
-            currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
-            disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
-        };
+                suggestedFollowUps,
+                currentTopic: enhancedIntent.targetParameter || enhancedIntent.type,
+                    disclaimer: "This information is educational only. Please discuss any concerns with your doctor."
+};
     }
 }

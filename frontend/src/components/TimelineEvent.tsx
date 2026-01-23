@@ -4,6 +4,7 @@ import { ChevronDown, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import HealthParametersModal from './HealthParametersModalNew';
 import { getDisplayDate, getDateSource, getDateSourceLabel, isDateInferred } from '@/lib/timelineDate';
+import { useChat } from '@/contexts/ChatContext';
 
 interface TimelineEventProps {
   event: any;
@@ -12,6 +13,7 @@ interface TimelineEventProps {
 }
 
 const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false, onOpenChat }) => {
+  const { openChat } = useChat();
   const [modalOpen, setModalOpen] = useState(false);
 
   // Use clinical event date if available, otherwise report date, otherwise upload date
@@ -26,14 +28,33 @@ const TimelineEvent: React.FC<TimelineEventProps> = ({ event, isLast = false, on
   const category = event.event_type || 'note';
   const status = event.status || 'completed';
 
-  // Debug callback
+  // FIX 4: "Ask AI About This" passes structured context, not text
   const handleAskAI = () => {
-    console.log('📍 TimelineEvent: Ask AI button clicked', { hasCallback: !!onOpenChat });
+    console.log('📍 TimelineEvent: Ask AI clicked, opening with structured context', {
+      eventId: event.id,
+      eventType: category,
+      title: event.title,
+      date: displayDate
+    });
+
+    // Open chat with structured context
+    openChat({
+      eventId: event.id,
+      eventType: category,
+      title: event.title,
+      date: displayDate,
+      context: {
+        eventId: event.id,
+        eventType: category,
+        description: event.description,
+        date: displayDate,
+        source: dateSource
+      }
+    });
+
+    // Also trigger the callback if provided (for backwards compatibility)
     if (onOpenChat) {
-      console.log('✅ TimelineEvent: Calling onOpenChat');
       onOpenChat();
-    } else {
-      console.warn('❌ TimelineEvent: onOpenChat prop is undefined');
     }
   };
 
