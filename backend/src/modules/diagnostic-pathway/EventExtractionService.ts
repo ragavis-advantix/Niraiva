@@ -28,6 +28,11 @@ export class EventExtractionService {
         const data = parsedJson.data || parsedJson;
 
         console.log(`📊 [EventExtraction] Processing report ${reportId} for patient ${patientId}`);
+        console.log(`📊 [EventExtraction] Data keys: ${Object.keys(data).join(', ')}`);
+
+        if (data.conditions) console.log(`📊 [EventExtraction] Found conditions: ${data.conditions.length}`);
+        if (data.parameters) console.log(`📊 [EventExtraction] Found parameters: ${data.parameters.length}`);
+        if (data.medications) console.log(`📊 [EventExtraction] Found medications: ${data.medications.length}`);
 
         // 1. Extract Diagnoses
         // Check both 'diagnoses' (common) and 'conditions' (from MultiLLM schema)

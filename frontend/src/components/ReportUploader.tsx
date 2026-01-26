@@ -1,109 +1,20 @@
 
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, X, Check, FileText, AlertCircle } from 'lucide-react';
+import { Upload, X, Check, FileText } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useReports } from '@/contexts/ReportContext';
 
-// PDF Rejection Modal Component
-function PdfRejectionModal({ fileName, onClose }: { fileName: string; onClose: () => void }) {
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          onClick={(e) => e.stopPropagation()}
-          className="bg-white dark:bg-gray-800 w-full max-w-md rounded-xl p-6 shadow-2xl"
-          role="dialog"
-          aria-labelledby="pdf-modal-title"
-          aria-describedby="pdf-modal-description"
-        >
-          {/* Header */}
-          <div className="flex items-start gap-3 mb-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-              <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div className="flex-1">
-              <h3 id="pdf-modal-title" className="text-lg font-semibold text-gray-900 dark:text-white">
-                PDF Upload Not Supported
-              </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                File: <span className="font-medium">{fileName}</span>
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-              aria-label="Close modal"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Content */}
-          <div id="pdf-modal-description" className="space-y-4">
-            <p className="text-sm text-gray-700 dark:text-gray-300">
-              For better accuracy and reliability, Niraiva accepts <strong>images (PNG/JPG)</strong> and <strong>JSON files</strong> only.
-            </p>
-
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2">
-                📸 How to upload your PDF:
-              </h4>
-              <ol className="list-decimal ml-5 space-y-1.5 text-sm text-blue-800 dark:text-blue-200">
-                <li>Open your PDF on your device</li>
-                <li>Take a clear screenshot or photo of each page</li>
-                <li>Return here and upload the image(s)</li>
-              </ol>
-            </div>
-
-            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3">
-              <p className="text-xs text-gray-600 dark:text-gray-400">
-                <strong>Quick screenshot shortcuts:</strong>
-              </p>
-              <ul className="mt-2 space-y-1 text-xs text-gray-600 dark:text-gray-400">
-                <li>• <strong>Windows:</strong> Win + Shift + S</li>
-                <li>• <strong>Mac:</strong> Cmd + Shift + 4</li>
-                <li>• <strong>iOS:</strong> Power + Volume Up</li>
-                <li>• <strong>Android:</strong> Power + Volume Down</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg bg-niraiva-600 text-white hover:bg-niraiva-700 transition-colors text-sm font-medium"
-            >
-              I Understand
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
-  );
-}
 
 export function ReportUploader() {
   const [isDragging, setIsDragging] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [showPdfModal, setShowPdfModal] = useState(false);
-  const [rejectedPdfName, setRejectedPdfName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { reports, addReport, removeReport, isProcessing } = useReports();
 
   // Allowed MIME types
-  const allowedMimeTypes = ['image/png', 'image/jpeg', 'application/json'];
+  const allowedMimeTypes = ['image/png', 'image/jpeg', 'application/json', 'application/pdf'];
   const maxSizeMB = 10;
 
   // Handle drag events
@@ -147,29 +58,12 @@ export function ReportUploader() {
 
   // Process files
   const handleFiles = (files: File[]) => {
-    // Check for PDFs first and reject them
-    const pdfFiles = files.filter(file =>
-      file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-    );
-
-    if (pdfFiles.length > 0) {
-      // Show modal for the first PDF
-      setRejectedPdfName(pdfFiles[0].name);
-      setShowPdfModal(true);
-
-      toast({
-        title: "PDF not supported",
-        description: "Please take a screenshot of your PDF and upload as an image.",
-        variant: "destructive"
-      });
-
-      return; // Don't process any files if PDF is detected
-    }
-
-    // Filter for valid files (PNG, JPG, JSON)
+    // Filter for valid files (PNG, JPG, JSON, PDF)
     const validFiles = files.filter(file => {
-      // Check MIME type
-      if (!allowedMimeTypes.includes(file.type)) {
+      // Check MIME type or extension for PDF
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+      if (!allowedMimeTypes.includes(file.type) && !isPdf) {
         return false;
       }
 
@@ -186,10 +80,10 @@ export function ReportUploader() {
       return true;
     });
 
-    if (validFiles.length === 0 && pdfFiles.length === 0) {
+    if (validFiles.length === 0) {
       toast({
         title: "Invalid file format",
-        description: "Please upload PNG, JPG, or JSON files only.",
+        description: "Please upload PNG, JPG, PDF, or JSON files only.",
         variant: "destructive"
       });
       return;
@@ -248,10 +142,10 @@ export function ReportUploader() {
           Drag and drop your health reports here
         </p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
-          Supported formats: <strong>PNG, JPG, JSON</strong>
+          Supported formats: <strong>PNG, JPG, PDF, JSON</strong>
         </p>
-        <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
-          📸 Have a PDF? Take a screenshot and upload the image instead
+        <p className="text-xs text-blue-600 dark:text-blue-400 mb-4">
+          ✨ New: You can now upload PDF reports directly for analysis
         </p>
 
         <label className="inline-block">
@@ -262,7 +156,7 @@ export function ReportUploader() {
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept="image/png,image/jpeg,application/json"
+            accept="image/png,image/jpeg,application/json,application/pdf"
             multiple
             onChange={handleFileInputChange}
           />
@@ -382,13 +276,7 @@ export function ReportUploader() {
         </div>
       )}
 
-      {/* PDF Rejection Modal */}
-      {showPdfModal && (
-        <PdfRejectionModal
-          fileName={rejectedPdfName}
-          onClose={() => setShowPdfModal(false)}
-        />
-      )}
+
     </div>
   );
 }

@@ -71,16 +71,101 @@ export default function DiagnosticPathwayPage() {
         if (!patientId) return;
 
         setLoading(true);
+
+        // First try to fetch clinical_events
         supabase
             .from('clinical_events')
             .select('*')
             .eq('patient_id', patientId)
             .order('event_date', { ascending: true })
-            .then(res => {
-                setEvents(res.data || []);
+            .then(async res => {
+                let eventsData = res.data || [];
+
+                // If no clinical_events, try to fetch from health_reports
+                if (eventsData.length === 0) {
+                    console.log('📊 [DiagnosticPathway] No clinical_events found, fetching from health_reports');
+                    try {
+                        const { data: reports, error } = await supabase
+                            .from('health_reports')
+                            .select('*')
+                            .eq('patient_id', patientId)
+                            .order('created_at', { ascending: true });
+
+                        if (!error && reports && reports.length > 0) {
+                            console.log('📄 [DiagnosticPathway] Found', reports.length, 'health reports');
+
+                            // Convert health_reports into clinical_events format
+                            eventsData = reports.map((report: any, idx: number) => {
+                                const reportData = report.report_json?.data || {};
+                                return {
+                                    id: report.id,
+                                    patient_id: report.patient_id,
+                                    event_name: report.filename || `Health Report ${idx + 1}`,
+                                    event_type: 'health_report',
+                                    event_date: report.created_at || new Date().toISOString(),
+                                    metadata: {
+                                        report_id: report.id,
+                                        source: 'health_reports',
+                                        conditions: reportData.conditions || [],
+                                        parameters: reportData.parameters || [],
+                                        medications: reportData.medications || [],
+                                        profile: reportData.profile || {}
+                                    }
+                                };
+                            });
+                            console.log('✅ [DiagnosticPathway] Converted', eventsData.length, 'reports to events format');
+                        }
+                    } catch (error) {
+                        console.error('❌ [DiagnosticPathway] Error fetching health_reports:', error);
+                    }
+                }
+
+                setEvents(eventsData);
                 setLoading(false);
             });
     }, [patientId]);
+
+    // Auto-detect condition from events/reports
+    useEffect(() => {
+        if (events.length === 0) return;
+
+        // Check if events came from health_reports
+        const healthReportEvent = events.find(e => e.metadata?.source === 'health_reports');
+        if (healthReportEvent) {
+            const conditions = healthReportEvent.metadata?.conditions || [];
+            const conditionNames = conditions.map((c: any) => c.name?.toLowerCase() || '');
+
+            console.log('🔍 [DiagnosticPathway] Detected conditions in reports:', conditionNames);
+
+            // Map common condition names to available pathways
+            const conditionMap: Record<string, string> = {
+                'diabetes': 'Type 2 Diabetes',
+                'type 2 diabetes': 'Type 2 Diabetes',
+                't2d': 'Type 2 Diabetes',
+                'hypertension': 'Hypertension',
+                'high blood pressure': 'Hypertension',
+                'hyperlipidemia': 'Hyperlipidemia',
+                'high cholesterol': 'Hyperlipidemia',
+                'cholesterol': 'Hyperlipidemia'
+            };
+
+            let detectedCondition = null;
+            for (const cond of conditionNames) {
+                for (const [key, pathway] of Object.entries(conditionMap)) {
+                    if (cond.includes(key)) {
+                        detectedCondition = pathway;
+                        break;
+                    }
+                }
+                if (detectedCondition) break;
+            }
+
+            if (detectedCondition && Object.keys(CONDITION_PATHWAYS).includes(detectedCondition)) {
+                console.log('✅ [DiagnosticPathway] Auto-detected condition:', detectedCondition);
+                setCondition(detectedCondition);
+            }
+        }
+    }, [events]);
 
     // Derived View Model (No Hardcoding)
     const viewModel: DiagnosticViewModel | null = useMemo(() => {

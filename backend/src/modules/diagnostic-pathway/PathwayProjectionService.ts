@@ -33,16 +33,110 @@ export class PathwayProjectionService {
         console.log(`🚀 [PathwayProjection] Projecting ${patientId} onto ${template.condition}`);
 
         // 2. Fetch all relevant events for this patient
-        // We fetch ALL events to match against criteria
-        const { data: events, error } = await supabase
+        // Try clinical_events first, fallback to health_reports
+        let { data: events, error } = await supabase
             .from('clinical_events')
             .select('*')
             .eq('patient_id', patientId)
             .order('event_date', { ascending: true });
 
-        if (error || !events) {
-            console.error('❌ [PathwayProjection] Failed to fetch events', error);
-            return null;
+        if (error || !events || events.length === 0) {
+            console.log('⚠️ [PathwayProjection] No clinical_events found, fetching from health_reports...');
+
+            // Fallback: Extract events from health_reports
+            const { data: reports, error: reportsError } = await supabase
+                .from('health_reports')
+                .select('report_json, uploaded_at')
+                .eq('user_id', patientId)
+                .order('uploaded_at', { ascending: true });
+
+            if (reportsError || !reports || reports.length === 0) {
+                console.error('❌ [PathwayProjection] Failed to fetch health_reports', reportsError);
+                return null;
+            }
+
+            events = [];
+            const eventSet = new Set<string>();
+
+            // Convert health_reports to event-like structure
+            reports.forEach((report) => {
+                if (!report.report_json || !report.report_json.data) return;
+
+                const reportData = report.report_json.data;
+
+                // Extract conditions as diagnosis events
+                if (Array.isArray(reportData.conditions)) {
+                    reportData.conditions.forEach((cond: any) => {
+                        const condName = cond.name || cond.diagnosis;
+                        const eventKey = `diagnosis-${condName}`;
+                        if (condName && !eventSet.has(eventKey)) {
+                            eventSet.add(eventKey);
+                            events.push({
+                                id: eventKey,
+                                event_type: 'diagnosis',
+                                event_name: condName,
+                                event_date: report.uploaded_at,
+                                confidence: cond.confidence || 0.9,
+                                metadata: { severity: cond.severity || 'moderate' }
+                            });
+                        }
+                    });
+                }
+
+                // Extract parameters as test events
+                if (Array.isArray(reportData.parameters)) {
+                    reportData.parameters.forEach((param: any) => {
+                        const paramName = param.name || param.test;
+                        const eventKey = `test-${paramName}`;
+                        if (paramName && !eventSet.has(eventKey)) {
+                            eventSet.add(eventKey);
+                            events.push({
+                                id: eventKey,
+                                event_type: 'test',
+                                event_name: paramName,
+                                event_date: report.uploaded_at,
+                                confidence: 0.95,
+                                metadata: {
+                                    value: param.value,
+                                    unit: param.unit,
+                                    status: param.status || 'normal'
+                                }
+                            });
+                        }
+                    });
+                }
+
+                // Extract medications as medication events
+                if (Array.isArray(reportData.medications)) {
+                    reportData.medications.forEach((med: any) => {
+                        if (med.name) {
+                            const eventKey = `medication-${med.name}`;
+                            if (!eventSet.has(eventKey)) {
+                                eventSet.add(eventKey);
+                                events.push({
+                                    id: eventKey,
+                                    event_type: 'medication',
+                                    event_name: med.name,
+                                    event_date: report.uploaded_at,
+                                    confidence: 0.95,
+                                    metadata: {
+                                        dose: med.dose,
+                                        frequency: med.frequency,
+                                        status: med.status || 'active'
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+
+            if (events.length === 0) {
+                console.log('⚠️ [PathwayProjection] No extractable events from health reports');
+                return null;
+            }
+
+            console.log(`✅ [PathwayProjection] Extracted ${events.length} events from health_reports`);
         }
 
         // 3. Map steps to status

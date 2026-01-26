@@ -9,10 +9,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import { getApiBaseUrl } from '@/lib/fhir';
 import { groupTimelineByDate, formatTimelineDate } from '@/lib/timelineDate';
+import { ReportUploader } from '@/components/ReportUploader';
+import { useReports } from '@/contexts/ReportContext';
 
 const Timeline = () => {
   const { user, session } = useAuth();
   const { openChat } = useChat();
+  const { isProcessing } = useReports();
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,6 +63,30 @@ const Timeline = () => {
 
     fetchTimeline();
   }, [user?.id, session?.access_token]);
+
+  // Auto-refresh when processing finishes
+  useEffect(() => {
+    if (!isProcessing && user?.id) {
+      const refreshTimeline = async () => {
+        try {
+          const apiBase = getApiBaseUrl();
+          const response = await fetch(`${apiBase}/api/reports/timeline`, {
+            headers: {
+              'Authorization': `Bearer ${session?.access_token || ''}`,
+              'Accept': 'application/json'
+            }
+          });
+          if (response.ok) {
+            const result = await response.json();
+            setEvents(result.events || []);
+          }
+        } catch (err) {
+          console.error('Error auto-refreshing timeline:', err);
+        }
+      };
+      refreshTimeline();
+    }
+  }, [isProcessing, user?.id]);
 
   useEffect(() => {
     if (!searchQuery) {
@@ -155,24 +182,7 @@ const Timeline = () => {
           {/* Sidebar Column (4/12) */}
           <aside className="lg:col-span-4 space-y-8">
             {/* Upload Card */}
-            <Card className="p-6 border-slate-100 shadow-sm rounded-2xl bg-white overflow-hidden relative group">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-niraiva-50 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110" />
-              <h3 className="text-sm font-black text-slate-800 mb-6 uppercase tracking-widest flex items-center gap-2">
-                Upload Health Reports
-              </h3>
-              <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center bg-slate-50/50 hover:bg-slate-50 transition-colors cursor-pointer group/upload">
-                <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center mx-auto mb-4 border border-slate-100 group-hover/upload:scale-110 transition-transform">
-                  <svg className="w-6 h-6 text-slate-400 group-hover/upload:text-niraiva-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" />
-                  </svg>
-                </div>
-                <p className="text-sm font-bold text-slate-600 mb-1">Drag and drop your health reports here</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-6">Supported formats: PDF, JSON</p>
-                <button className="bg-[#BFF3F9] hover:bg-[#A5EAF2] text-[#0891B2] text-xs font-black py-2.5 px-6 rounded-xl transition-all uppercase tracking-widest shadow-sm shadow-[#BFF3F9]/50">
-                  Browse Files
-                </button>
-              </div>
-            </Card>
+            <ReportUploader />
 
             {/* Upcoming Events Card */}
             <Card className="p-6 border-slate-100 shadow-sm rounded-2xl bg-white">

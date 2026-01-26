@@ -155,14 +155,17 @@ export default function HealthReportUpload() {
                     body: formData,
                 });
 
-                if (!response.ok) throw new Error('Upload failed');
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || errorData.error || 'Upload failed');
+                }
 
                 const data = await response.json();
 
                 if (data.ai_status === 'failed') {
                     toast({
                         title: 'Upload successful (AI Busy)',
-                        description: data.error || `Report uploaded, but AI analysis is temporarily unavailable.`,
+                        description: data.details || data.error || `Report uploaded, but AI analysis is temporarily unavailable.`,
                         variant: 'destructive',
                     });
                 } else {

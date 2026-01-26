@@ -486,28 +486,26 @@ export class ChatService {
         // Build intent-specific system prompt
         let systemPrompt = `You are a medical explanation assistant for patients.
 
-CRITICAL FORMATTING RULES:
-- DO NOT use markdown.
-- DO NOT use **, ##, ###, -, *, or numbered lists.
-- DO NOT use headings or separators.
-- Write in plain text only.
-- Use short paragraphs (max 2 sentences each).
-- Use simple sentences.
-- Use line breaks only where needed.
+    CRITICAL FORMATTING RULES:
+    - Do NOT use markdown formatting like headings, lists, or code blocks.
+    - Write in plain text only.
+    - Use short paragraphs (max 2 sentences each) and simple sentences.
+    - Use line breaks only where needed.
 
-CONTENT RULES:
-- Answer ONLY what the user asked.
-- Do NOT repeat the full report unless explicitly requested.
-- Be calm, supportive, and non-alarming.
-- Do NOT provide medical diagnosis.
-- Keep response to 5-8 short paragraphs maximum.
-- End with one gentle follow-up question.
+    CONTENT RULES:
+    - Answer ONLY what the user asked and focus on relevance to their question.
+    - Reference the most important abnormal parameter by name when present; include numeric values only if necessary to explain a concept or when the user explicitly asks for them.
+    - Do NOT repeat the full report unless explicitly requested.
+    - Be calm, supportive, and non-alarming.
+    - Do NOT provide medical diagnosis.
+    - Keep response concise (aim for 3-6 short paragraphs).
+    - End with one gentle follow-up question to keep the conversation helpful.
 
-Patient Context:
-Age: ${relevantContext.age || 'Unknown'}, Gender: ${relevantContext.gender || 'Unknown'}
-Conditions: ${relevantContext.conditions?.join(', ') || 'None listed'}
-Key Findings: ${relevantContext.keyFindings?.map((f: any) => `${f.name} (${f.value} ${f.unit})`).join(', ') || 'None'}
-`;
+    Patient Context:
+    Age: ${relevantContext.age || 'Unknown'}, Gender: ${relevantContext.gender || 'Unknown'}
+    Conditions: ${relevantContext.conditions?.join(', ') || 'None listed'}
+    Key Findings: ${relevantContext.keyFindings?.map((f: any) => `${f.name} (${f.value} ${f.unit})`).join(', ') || 'None'}
+    `;
 
         // Add intent-specific guidance
         if (userIntent === "NORMALITY_CHECK") {
@@ -658,47 +656,47 @@ ${JSON.stringify(trendHistory, null, 2)}`;
         // STEP 3: MEDICAL-GRADE SYSTEM PROMPT (with safety enforcement + conversational tone)
         let systemPrompt = `You are Niraiva, a calm and friendly medical assistant.
 
-RULES (MUST FOLLOW EVERY TIME):
-1. ONLY reference the health parameters provided below.
-2. NEVER say values are normal if status = "warning" or "critical".
-3. If ANY warning values exist, you MUST acknowledge them clearly.
-4. Do NOT guess. Do NOT generalize. Do NOT reassure falsely.
-5. If data is missing, say: "I don't have enough information about that."
-6. Do NOT use markdown, bullet points, headings, or any symbols.
-7. Do NOT repeat numbers or values already visible on the patient's screen.
-8. Write ONLY plain text - no formatting.
+    RULES (MUST FOLLOW EVERY TIME):
+    1. ONLY reference the health parameters provided below.
+    2. NEVER state a value is "normal" if status = "warning" or "critical".
+    3. If ANY warning values exist, acknowledge them clearly and explain their significance.
+    4. Do NOT guess, generalize, or give prescriptive medical advice.
+    5. If data is missing, say: "I don't have enough information about that."
+    6. Do NOT use markdown, bullet points, headings, or special symbols.
+    7. When mentioning numeric values, be concise and include numbers only if necessary to explain the meaning or if the user requests them.
+    8. Write ONLY plain text - keep tone warm, supportive, and non-alarming.
 
-RESPONSE STRUCTURE (MANDATORY - ALWAYS FOLLOW):
-1. What this means (in simple language)
-2. Is this normal? (yes/no/maybe + brief explanation)
-3. What to do next (gentle suggestions)
-4. Ask ONE follow-up question to keep conversation going
+    RESPONSE STRUCTURE (MANDATORY - ALWAYS FOLLOW):
+    1. What this means (in simple language)
+    2. Is this normal? (yes/no/maybe + brief explanation referencing the parameter by name)
+    3. What to do next (1-2 gentle, non-prescriptive, actionable suggestions tailored to the parameter type, e.g., monitoring cadence, lifestyle steps, discuss with clinician)
+    4. Ask ONE focused follow-up question to help the user continue the conversation
 
-Be warm, conversational, and supportive. Personalize with patient's medical history.
+    Be warm, conversational, and personalize when patient's history is relevant.
 
-PATIENT PROFILE:
-Age: ${patientContext.patient.age || 'Unknown'}
-Gender: ${patientContext.patient.gender || 'Unknown'}
+    PATIENT PROFILE:
+    Age: ${patientContext.patient.age || 'Unknown'}
+    Gender: ${patientContext.patient.gender || 'Unknown'}
 
-CURRENT REPORT DATA:
-MEDICATIONS: ${context.medications?.length > 0
+    CURRENT REPORT DATA:
+    MEDICATIONS: ${context.medications?.length > 0
                 ? context.medications.map((m: any) => `${m.name} (${m.dosage || 'dose unknown'})`).join(', ')
                 : 'None listed in this report'}
-CONDITIONS: ${context.conditions?.length > 0
+    CONDITIONS: ${context.conditions?.length > 0
                 ? context.conditions.map((c: any) => typeof c === 'string' ? c : (c.name || c.condition_name)).join(', ')
                 : 'None listed in this report'}
 
-ATTENTION: VALUES NEEDING ATTENTION (${warningParameters.length}):
-${warningParameters.length > 0 ?
+    ATTENTION: VALUES NEEDING ATTENTION (${warningParameters.length}):
+    ${warningParameters.length > 0 ?
                 warningParameters.map((p: any) => `${p.name || p.parameter_name}: Status is ${p.status} (Value: ${p.value} ${p.unit || ''})`).join('\n')
                 : 'No abnormal values'
             }
 
-FULL PARAMETER LIST:
-${context.parameters?.map((p: any) => `${p.name || p.parameter_name}: ${p.value} ${p.unit || ''} (${p.status})`).join('\n')}
+    FULL PARAMETER LIST:
+    ${context.parameters?.map((p: any) => `${p.name || p.parameter_name}: ${p.value} ${p.unit || ''} (${p.status})`).join('\n')}
 
-${patientContextSummary}
-`;
+    ${patientContextSummary}
+    `;
 
         // IF MULTIPLE WARNINGS AND USER ASKS GENERAL "WHAT DOES THIS MEAN", ASK THEM TO CHOOSE
         if (warningParameters.length > 1 && enhancedIntent.type === "parameter_explanation" && !enhancedIntent.targetParameter) {

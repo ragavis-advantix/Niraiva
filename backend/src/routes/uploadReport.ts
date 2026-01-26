@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import Tesseract from "tesseract.js";
+const pdf = require("pdf-parse");
 import { getSupabaseAdminClient, getSupabaseClient } from "../lib/supabaseClient";
 import { MultiLLMService } from "../services/MultiLLMService";
 import { extractClinicalDates, resolvePrimaryClinicialDate, logDateExtraction } from "../lib/clinicalDateExtraction";
@@ -31,7 +32,7 @@ declare global {
 function cleanText(text: string) {
     return String(text || "")
         .replace(/\s+/g, " ")
-        .replace(/[^a-zA-Z0-9.,:/\-+()\s]/g, "")
+        .replace(/[^a-zA-Z0-9.,:/\-+()\[\]{}"'<>!@#$%^&*=_|\\?;~\s]/g, "")
         .trim();
 }
 
@@ -87,26 +88,13 @@ router.post(
             const file = req.file as Express.Multer.File;
             const mime = file.mimetype || "application/octet-stream";
 
-            // ========== REJECT PDFs ==========
-            if (mime === "application/pdf" || file.originalname?.toLowerCase().endsWith('.pdf')) {
-                // Log for analytics
-                console.warn(`[UPLOAD-REPORT] PDF upload blocked: user=${user?.id} file=${file.originalname}`);
-
-                // Return 415 Unsupported Media Type
-                return res.status(415).json({
-                    status: "unsupported_media_type",
-                    message: "PDF uploads are not supported. Please upload a screenshot (PNG/JPG) of the PDF, or a JSON export.",
-                    hint: "Take a screenshot of your PDF and upload the image instead."
-                });
-            }
-
             // ========== VALIDATE ALLOWED TYPES ==========
-            const allowedMimeTypes = ['image/png', 'image/jpeg', 'application/json'];
+            const allowedMimeTypes = ['image/png', 'image/jpeg', 'application/json', 'application/pdf'];
             if (!allowedMimeTypes.includes(mime)) {
                 console.warn(`[UPLOAD-REPORT] Unsupported file type: ${mime}`);
                 return res.status(415).json({
                     status: "unsupported_media_type",
-                    message: "Unsupported file type. Please upload PNG, JPG, or JSON files only."
+                    message: "Unsupported file type. Please upload PNG, JPG, PDF, or JSON files only."
                 });
             }
 
@@ -134,6 +122,59 @@ router.post(
                 } catch (err) {
                     console.error("❌ JSON PARSE ERROR:", err);
                     return res.status(400).json({ status: "error", message: "Invalid JSON file", details: String(err) });
+                }
+            }
+            // ========== PDF PROCESSING ==========
+            else if (mime === "application/pdf" || file.originalname?.toLowerCase().endsWith('.pdf')) {
+                debugLog(`📄 Processing PDF file: ${file.originalname}`);
+                console.log("📄 Processing PDF file...");
+                try {
+                    // Check magic bytes for %PDF (25 50 44 46)
+                    const magic = file.buffer.slice(0, 4).toString('hex');
+                    if (magic !== '25504446') {
+                        debugLog(`❌ ERROR: Invalid magic bytes for PDF: ${magic}`);
+                        return res.status(400).json({
+                            status: "error",
+                            message: "The uploaded file is not a valid PDF document.",
+                            hint: "Ensure you are uploading an actual PDF and not a renamed image or document."
+                        });
+                    }
+
+                    // Try robust PDF extraction using pdfjs-dist directly
+                    try {
+                        const { extractTextFromPDF } = require('../utils/pdfUtils');
+                        extractedText = await extractTextFromPDF(file.buffer);
+                        debugLog(`✅ PDF (Robust) extraction successful, length: ${extractedText?.length}`);
+                    } catch (robustErr: any) {
+                        debugLog(`⚠️ Robust extraction failed: ${robustErr.message}. Trying legacy parser...`);
+                        if (typeof pdf === 'function') {
+                            const data = await pdf(file.buffer);
+                            extractedText = data.text || "";
+                        } else {
+                            throw robustErr;
+                        }
+                    }
+
+                    if (!extractedText.trim()) {
+                        debugLog("⚠️ PDF yielded empty text. Might be a scanned document.");
+                    }
+                    console.log("✅ PDF text extraction completed");
+                } catch (err: any) {
+                    const errMsg = err?.message || String(err);
+                    debugLog(`❌ PDF Extraction EXCEPTION: ${errMsg}`);
+                    console.error("❌ PDF extraction error:", err);
+
+                    let userMsg = "Failed to extract text from the PDF.";
+                    if (errMsg.includes("bad XRef entry")) {
+                        userMsg = "This PDF appears to be corrupted or in an unsupported format.";
+                    }
+
+                    return res.status(422).json({
+                        status: "error",
+                        message: userMsg,
+                        details: errMsg,
+                        hint: "If this is a scanned document, try uploading a screenshot (PNG/JPG) instead."
+                    });
                 }
             }
 
@@ -209,6 +250,7 @@ You are a medical document analyzer. Convert this text into EXACTLY one JSON fol
     }
   },
   "extractedAt": string | null,
+  "confidence": number,
   "processingStatus": "success"
 }
 
@@ -539,24 +581,31 @@ ${cleanedText}
                         const eventStatus = eventInfo.status || 'completed';
                         const uploadTime = new Date().toISOString();
 
-                        // 🔑 CRITICAL: Extract clinical event dates from parsed report
-                        const parsedText = String(aiJSON?.text || '');
-                        const extractedDates = extractClinicalDates(parsedText, aiJSON);
+                        // 🔑 CRITICAL: Extract clinical event dates from cleaned OCR text
+                        const extractedDates = extractClinicalDates(cleanedText, aiJSON);
                         const clinicalEventDate = resolvePrimaryClinicialDate(extractedDates);
                         const reportDate = extractedDates.reportDate || extractedDates.labDate;
                         const eventType = eventInfo.eventType || 'test';
 
-                        // 🔑 CRITICAL: Use clinical date as the primary event time for sorting/grouping
-                        const eventTime = clinicalEventDate
-                            ? new Date(clinicalEventDate).toISOString()
-                            : (reportDate ? new Date(reportDate).toISOString() : uploadTime);
+                        // 🔑 Ensure eventTime is always a valid ISO string
+                        let eventTime = uploadTime;
+                        try {
+                            if (clinicalEventDate && !isNaN(new Date(clinicalEventDate).getTime())) {
+                                eventTime = new Date(clinicalEventDate).toISOString();
+                            } else if (reportDate && !isNaN(new Date(reportDate).getTime())) {
+                                eventTime = new Date(reportDate).toISOString();
+                            }
+                        } catch (e) {
+                            debugLog(`⚠️ Date conversion failed for ${clinicalEventDate || reportDate}. Defaulting to uploadTime.`);
+                            eventTime = uploadTime;
+                        }
 
                         // Log for debugging
                         logDateExtraction(reportData.id, extractedDates, clinicalEventDate, !clinicalEventDate);
-                        debugLog(`📅 Creating timeline event: "${title}" (${eventType})`);
-                        debugLog(`📅 Dates - Clinical: ${clinicalEventDate}, Report: ${reportDate}, Upload: ${uploadTime}`);
+                        debugLog(`📅 Creating timeline event: "${title}" (${eventType}) @ ${eventTime}`);
 
-                        const { error: timelineError } = await supabaseAdmin.from('timeline_events').insert([{
+                        // 🛡️ REPAIR: Only include columns that are guaranteed to exist in the current DB schema
+                        const timelinePayload: any = {
                             patient_id: user.id,
                             title,
                             description,
@@ -564,15 +613,15 @@ ${cleanedText}
                             status: eventStatus,
                             event_time: eventTime,
                             source_report_id: reportData.id,
-                            clinical_event_date: clinicalEventDate,
-                            report_date: reportDate,
-                            upload_date: new Date(uploadTime),
                             metadata: { report_json: aiJSON }
-                        }]);
+                        };
+
+                        debugLog(`📡 Sending timeline insert for ${reportData.id}`);
+                        const { error: timelineError } = await supabaseAdmin.from('timeline_events').insert([timelinePayload]);
 
                         if (timelineError) {
-                            console.warn('❌ Failed to insert timeline event:', timelineError);
-                            debugLog(`❌ Timeline Insert Error: ${timelineError.message}`);
+                            console.error('❌ Failed to insert timeline event:', timelineError);
+                            debugLog(`❌ Timeline Insert Error: ${timelineError.message} (Payload: ${JSON.stringify(timelinePayload).substring(0, 100)}...)`);
                         } else {
                             console.log('✅ Timeline event created successfully');
                             debugLog('✅ Timeline event created successfully');

@@ -8,7 +8,6 @@ import { ReportUploader } from '@/components/ReportUploader';
 import { VoiceCommand } from '@/components/VoiceCommand';
 import { useReports } from '@/contexts/ReportContext';
 import {
-  generateUserSpecificNodes,
   HealthParameter,
   DiagnosticNode
 } from '@/utils/healthData';
@@ -53,10 +52,11 @@ const Diagnostic = () => {
   const { chronicConditions, userProfile } = useData();
   const { reports } = useReports();
   const { user, session } = useAuth();
+  console.log('📱 [Diagnostic] Component render - reports:', reports.length, 'sample:', reports[0]?.name);
+
   const [userSpecificNodes, setUserSpecificNodes] = useState<any[]>([]);
   const [clinicalSummary, setClinicalSummary] = useState<any>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
-  const [pathwayData, setPathwayData] = useState<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] });
   console.log('Chronic conditions:', chronicConditions);
 
   const [selectedCondition, setSelectedCondition] = useState<ChronicCondition | null>(() => chronicConditions?.[0] ?? null);
@@ -76,45 +76,158 @@ const Diagnostic = () => {
     }
   }, [chronicConditions, selectedCondition]);
 
-  // Generate user-specific diagnostic nodes when user profile or reports change
+  // Generate user-specific diagnostic nodes from REAL uploaded reports
   useEffect(() => {
-    if (!userProfile?.user_id) return;
+    const timestamp = new Date().toLocaleTimeString();
+    console.log(`⏰ [Diagnostic] Effect triggered at ${timestamp} - reports:`, reports.length, reports.map((r: any) => r.name).slice(0, 2));
 
-    const loadNodes = async () => {
-      try {
-        // Generate base nodes
-        const nodes = await generateUserSpecificNodes(userProfile.user_id);
+    if (reports.length === 0) {
+      console.log('⚠️ [Diagnostic] No reports, clearing nodes');
+      setUserSpecificNodes([]);
+      return;
+    }
 
-        if (reports.length > 0) {
-          // If we have reports, enhance the nodes with report data
-          const enhancedNodes = nodes.map((node: DiagnosticNode) => {
-            // Add report info as a child node
-            const reportNode: DiagnosticNode = {
-              id: `report-${Date.now()}`,
-              name: "Source Reports",
-              value: reports.length,
-              unit: "files"
-            };
+    try {
+      console.log('📊 [Diagnostic] Starting to build nodes from reports:', reports.length);
 
-            return {
-              ...node,
-              children: [...(node.children || []), reportNode],
-              value: reports.length > 2 ? reports.length : node.value
-            };
+      const parameters: Map<string, any> = new Map();
+      const conditions: Map<string, any> = new Map();
+      const medications: Map<string, any> = new Map();
+
+      // Process all reports and aggregate real clinical data
+      reports.forEach((report: any, idx: number) => {
+        // Handle both parsedData and report_json structures
+        const reportData = report.parsedData?.data || report.report_json?.data || {};
+
+        console.log(`📄 [Diagnostic] Processing report ${idx + 1}:`, {
+          filename: report.name || report.filename,
+          hasData: !!reportData,
+          params: reportData.parameters?.length || 0,
+          conditions: reportData.conditions?.length || 0,
+          meds: reportData.medications?.length || 0
+        });
+
+        // Extract parameters from report
+        if (Array.isArray(reportData.parameters)) {
+          reportData.parameters.forEach((param: any) => {
+            const key = (param.name || param.test || '').trim();
+            if (key && !parameters.has(key)) {
+              parameters.set(key, {
+                id: `param-${key}`,
+                name: key,
+                value: param.value ?? 0,
+                unit: param.unit || '',
+                status: param.status || 'normal'
+              });
+            }
           });
-
-          setUserSpecificNodes(enhancedNodes);
-        } else {
-          setUserSpecificNodes(nodes);
         }
-      } catch (error) {
-        console.error('Error loading diagnostic nodes:', error);
+
+        // Extract conditions from report
+        if (Array.isArray(reportData.conditions)) {
+          reportData.conditions.forEach((cond: any) => {
+            const key = (cond.name || cond.diagnosis || '').trim();
+            if (key && !conditions.has(key)) {
+              conditions.set(key, {
+                id: `cond-${key}`,
+                name: key,
+                severity: cond.severity || cond.currentStatus || 'moderate'
+              });
+            }
+          });
+        }
+
+        // Extract medications from report
+        if (Array.isArray(reportData.medications)) {
+          reportData.medications.forEach((med: any) => {
+            const key = (med.name || '').trim();
+            if (key && !medications.has(key)) {
+              medications.set(key, {
+                id: `med-${key}`,
+                name: key,
+                dose: med.dosage || med.dose || 'As prescribed',
+                frequency: med.frequency || ''
+              });
+            }
+          });
+        }
+      });
+
+      console.log('📊 [Diagnostic] Aggregated data:', {
+        uniqueConditions: conditions.size,
+        uniqueParameters: parameters.size,
+        uniqueMedications: medications.size
+      });
+
+      const nodes: DiagnosticNode[] = [];
+
+      // Create nodes from aggregated real data - prioritize conditions first
+      if (conditions.size > 0) {
+        nodes.push({
+          id: 'chronic-conditions',
+          name: 'Chronic Conditions',
+          value: conditions.size,
+          unit: 'conditions',
+          children: Array.from(conditions.values()).map(cond => ({
+            id: cond.id,
+            name: cond.name,
+            value: cond.severity
+          }))
+        });
       }
-    };
 
-    loadNodes();
-  }, [userProfile?.user_id, reports, selectedCondition]);
+      if (parameters.size > 0) {
+        nodes.push({
+          id: 'health-parameters',
+          name: 'Health Parameters',
+          value: parameters.size,
+          unit: 'items',
+          children: Array.from(parameters.values()).map(param => ({
+            id: param.id,
+            name: param.name,
+            value: param.value,
+            unit: param.unit
+          }))
+        });
+      }
 
+      if (medications.size > 0) {
+        nodes.push({
+          id: 'active-medications',
+          name: 'Active Medications',
+          value: medications.size,
+          unit: 'medications',
+          children: Array.from(medications.values()).map(med => ({
+            id: med.id,
+            name: med.name,
+            value: med.dose
+          }))
+        });
+      }
+
+      // Add source reports info if we have extracted data
+      if (nodes.length > 0) {
+        nodes.push({
+          id: 'source-reports',
+          name: 'Source Reports',
+          value: reports.length,
+          unit: 'files uploaded'
+        });
+      }
+
+      console.log('✅ [Diagnostic] Final nodes:', nodes.length, {
+        conditions: nodes.find(n => n.id === 'chronic-conditions')?.children?.length || 0,
+        parameters: nodes.find(n => n.id === 'health-parameters')?.children?.length || 0,
+        medications: nodes.find(n => n.id === 'active-medications')?.children?.length || 0
+      });
+
+      setUserSpecificNodes(nodes);
+      console.log('✅ [Diagnostic] Nodes set to state - will now be rendered in DiagnosticMap');
+    } catch (error) {
+      console.error('❌ [Diagnostic] Error building nodes:', error);
+      setUserSpecificNodes([]);
+    }
+  }, [reports]);
   // Fetch clinical summary from health reports
   useEffect(() => {
     if (!user?.id) return;
@@ -153,71 +266,17 @@ const Diagnostic = () => {
     return () => clearInterval(pollInterval);
   }, [user?.id, session?.access_token, reports.length]);
 
-  // NEW: Fetch Real Pathway Graph
-  useEffect(() => {
-    if (!user?.id) return;
+  // Removed: The old fetchPathway API effect that was overwriting userSpecificNodes
+  // Now we display nodes built directly from reports (see the useEffect above)
+  // This ensures we show real uploaded data, not template pathways
 
-    const fetchPathway = async () => {
-      try {
-        const apiBase = getApiBaseUrl();
-        const response = await fetch(`${apiBase}/api/diagnostic-pathway/${user.id}?conditionFilter=${selectedCondition.name}`, {
-          headers: {
-            'Authorization': `Bearer ${session?.access_token || ''}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          let adaptedNodes = [];
-
-          if (data.isGuideline) {
-            // Guideline nodes use 'steps' logic
-            adaptedNodes = data.nodes.map((n: any, idx: number) => ({
-              id: n.id,
-              name: n.data.label,
-              title: n.data.label,
-              type: n.data.type,
-              status: n.data.status,
-              description: n.data.description,
-              // Use vertical grid for guideline
-              x: 0,
-              y: idx,
-              connections: data.edges
-                .filter((e: any) => e.source === n.id)
-                .map((e: any) => e.target)
-            }));
-          } else {
-            // Raw events
-            adaptedNodes = data.nodes.map((n: any, idx: number) => ({
-              id: n.id,
-              name: n.data.label,
-              title: n.data.label,
-              type: n.data.type,
-              date: n.data.date,
-              description: n.data.metadata?.notes || n.data.type,
-              x: idx,
-              y: n.data.type === 'test' ? 1 : 0,
-              connections: data.edges
-                .filter((e: any) => e.source === n.id)
-                .map((e: any) => e.target)
-            }));
-          }
-          setPathwayData(data);
-          setUserSpecificNodes(adaptedNodes);
-        }
-      } catch (err) {
-        console.error('Error fetching pathway:', err);
-      }
-    };
-
-    fetchPathway();
-  }, [user?.id, session?.access_token, reports.length, selectedCondition?.id]);
-
-  if (!chronicConditions || chronicConditions.length === 0 || !selectedCondition) {
+  if ((!chronicConditions || chronicConditions.length === 0) && reports.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-white to-blue-50 dark:from-gray-900 dark:to-gray-800">
         <div className="text-center p-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">No Conditions</h1>
-          <p className="text-gray-600 dark:text-gray-300">No chronic conditions have been added yet.</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">No Clinical Data</h1>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">No chronic conditions or uploaded reports found.</p>
+          <p className="text-sm text-gray-500">Upload health reports to see your diagnostic pathway.</p>
         </div>
       </div>
     );
@@ -257,19 +316,34 @@ const Diagnostic = () => {
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Condition Pathway</h2>
 
                 <div className="flex flex-wrap mt-2 sm:mt-0">
-                  {chronicConditions.map((condition) => (
-                    <button
-                      key={condition.id}
-                      onClick={() => setSelectedCondition(condition)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors mr-1.5 mb-1.5 sm:mb-0 ${selectedCondition.id === condition.id
-                        ? 'bg-niraiva-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-                        }`}
-                      id={`condition-${condition.id}`}
-                    >
-                      {condition.name}
-                    </button>
-                  ))}
+                  {chronicConditions && chronicConditions.length > 0 ? (
+                    chronicConditions.map((condition) => (
+                      <button
+                        key={condition.id}
+                        onClick={() => setSelectedCondition(condition)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors mr-1.5 mb-1.5 sm:mb-0 ${selectedCondition?.id === condition.id
+                          ? 'bg-niraiva-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                          }`}
+                        id={`condition-${condition.id}`}
+                      >
+                        {condition.name}
+                      </button>
+                    ))
+                  ) : (
+                    // Show conditions extracted from reports if no chronicConditions
+                    userSpecificNodes
+                      .filter((n) => n.id === 'chronic-conditions')
+                      .flatMap((n) => n.children || [])
+                      .map((cond, idx) => (
+                        <span
+                          key={`cond-${idx}`}
+                          className="px-3 py-1 rounded-full text-xs font-medium bg-niraiva-100 dark:bg-niraiva-900/30 text-niraiva-700 dark:text-niraiva-300 mr-1.5 mb-1.5 sm:mb-0"
+                        >
+                          {cond.name}
+                        </span>
+                      ))
+                  )}
                 </div>
               </div>
 
@@ -278,7 +352,7 @@ const Diagnostic = () => {
                 <div>
                   <h3 className="font-medium text-gray-900 dark:text-white mb-0.5 text-xs">About this view</h3>
                   <p className="text-xs text-gray-600 dark:text-gray-300 leading-tight">
-                    Pathway diagram for {selectedCondition.name}. Zoom with scroll/pinch, drag to pan, click nodes for details.
+                    Pathway diagram for {selectedCondition?.name || 'clinical data'}. Zoom with scroll/pinch, drag to pan, click nodes for details.
                   </p>
                 </div>
               </div>
@@ -295,6 +369,15 @@ const Diagnostic = () => {
                 </div>
               )}
 
+              {userSpecificNodes.length === 0 && reports.length > 0 && (
+                <div className="p-8 text-center border-2 border-dashed border-red-400 bg-red-50 rounded-lg">
+                  <p className="text-red-700 font-bold">❌ ERROR: Nodes not being built from reports!</p>
+                  <p className="text-sm text-red-600 mt-2">Reports available: {reports.length}, but userSpecificNodes is empty</p>
+                  <p className="text-xs text-red-500 mt-1">Check console logs for "[Diagnostic]" messages</p>
+                </div>
+              )}
+
+              {console.log('🎨 [Diagnostic] Rendering DiagnosticMap with nodes:', userSpecificNodes.length, userSpecificNodes.map(n => n.id))}
               <DiagnosticMap nodes={userSpecificNodes} className="mt-3" />
             </motion.div>
           </div>
@@ -335,14 +418,14 @@ const Diagnostic = () => {
                 <div className="flex justify-between mb-1 text-xs">
                   <span className="text-gray-600 dark:text-gray-300">Diagnosis Date</span>
                   <span className="font-medium text-gray-900 dark:text-white">
-                    {new Date(selectedCondition.diagnosedDate).toLocaleDateString('en-IN')}
+                    {selectedCondition?.diagnosedDate ? new Date(selectedCondition.diagnosedDate).toLocaleDateString('en-IN') : 'N/A'}
                   </span>
                 </div>
 
                 <div className="flex justify-between mb-2">
                   <span className="text-gray-600 dark:text-gray-300">Current Severity</span>
-                  <span className={`font-medium ${selectedCondition.severity === 'mild' ? 'text-health-good' :
-                    selectedCondition.severity === 'moderate' ? 'text-health-moderate' :
+                  <span className={`font-medium ${selectedCondition?.severity === 'mild' ? 'text-health-good' :
+                    selectedCondition?.severity === 'moderate' ? 'text-health-moderate' :
                       'text-health-poor'
                     }`}>
                     {selectedCondition?.severity

@@ -300,38 +300,131 @@ export async function saveAbhaProfile(userId: string, abhaData: any): Promise<bo
 }
 
 // Function to generate user-specific diagnostic nodes
+// Now fetches REAL data from health reports and clinical events
 export async function generateUserSpecificNodes(userId: string): Promise<DiagnosticNode[]> {
-  const healthParams = await getHealthParameters(userId);
-  const chronicConditions = await getChronicConditions(userId);
+  try {
+    // Fetch health reports for this user
+    const { data: reports, error: reportsError } = await supabase
+      .from("health_reports")
+      .select("report_json, uploaded_at")
+      .eq("user_id", userId)
+      .order("uploaded_at", { ascending: false });
 
-  const nodes: DiagnosticNode[] = [];
+    if (reportsError) {
+      console.error("Error fetching health reports:", reportsError);
+      return [];
+    }
 
-  // Add health parameters node
-  if (healthParams.length > 0) {
-    nodes.push({
-      id: "health-parameters",
-      name: "Health Parameters",
-      children: healthParams.map(param => ({
-        id: param.id,
-        name: param.name,
-        value: param.value,
-        unit: param.unit
-      }))
+    if (!reports || reports.length === 0) {
+      console.log("No health reports found for user");
+      return [];
+    }
+
+    const nodes: DiagnosticNode[] = [];
+    const parameters: Map<string, HealthParameter> = new Map();
+    const conditions: Map<string, any> = new Map();
+    const medications: Map<string, any> = new Map();
+
+    // Process all reports and aggregate real clinical data
+    reports.forEach((report) => {
+      if (!report.report_json) return;
+
+      const reportData = report.report_json.data || {};
+
+      // Extract parameters from report
+      if (Array.isArray(reportData.parameters)) {
+        reportData.parameters.forEach((param: any) => {
+          const key = param.name || param.test;
+          if (key && !parameters.has(key)) {
+            parameters.set(key, {
+              id: `param-${key}`,
+              name: param.name || param.test,
+              value: param.value ?? 0,
+              unit: param.unit,
+              status: param.status || "normal",
+              timestamp: report.uploaded_at || new Date().toISOString()
+            });
+          }
+        });
+      }
+
+      // Extract conditions from report
+      if (Array.isArray(reportData.conditions)) {
+        reportData.conditions.forEach((cond: any) => {
+          const key = cond.name || cond.diagnosis;
+          if (key && !conditions.has(key)) {
+            conditions.set(key, {
+              id: `cond-${key}`,
+              name: cond.name || cond.diagnosis,
+              severity: cond.severity || "moderate"
+            });
+          }
+        });
+      }
+
+      // Extract medications from report
+      if (Array.isArray(reportData.medications)) {
+        reportData.medications.forEach((med: any) => {
+          const key = med.name;
+          if (key && !medications.has(key)) {
+            medications.set(key, {
+              id: `med-${key}`,
+              name: med.name,
+              dose: med.dose,
+              frequency: med.frequency
+            });
+          }
+        });
+      }
     });
-  }
 
-  // Add chronic conditions node
-  if (chronicConditions.length > 0) {
-    nodes.push({
-      id: "chronic-conditions",
-      name: "Chronic Conditions",
-      children: chronicConditions.map(condition => ({
-        id: condition.id,
-        name: condition.name,
-        value: condition.severity
-      }))
-    });
-  }
+    // Create nodes from aggregated real data
+    if (parameters.size > 0) {
+      nodes.push({
+        id: "health-parameters",
+        name: "Health Parameters",
+        value: parameters.size,
+        unit: "items",
+        children: Array.from(parameters.values()).map(param => ({
+          id: param.id,
+          name: param.name,
+          value: param.value,
+          unit: param.unit
+        }))
+      });
+    }
 
-  return nodes;
+    if (conditions.size > 0) {
+      nodes.push({
+        id: "chronic-conditions",
+        name: "Chronic Conditions",
+        value: conditions.size,
+        unit: "conditions",
+        children: Array.from(conditions.values()).map(cond => ({
+          id: cond.id,
+          name: cond.name,
+          value: cond.severity
+        }))
+      });
+    }
+
+    if (medications.size > 0) {
+      nodes.push({
+        id: "active-medications",
+        name: "Active Medications",
+        value: medications.size,
+        unit: "medications",
+        children: Array.from(medications.values()).map(med => ({
+          id: med.id,
+          name: med.name,
+          value: med.dose || "As prescribed"
+        }))
+      });
+    }
+
+    return nodes;
+  } catch (error) {
+    console.error("Error generating user-specific nodes:", error);
+    return [];
+  }
 }

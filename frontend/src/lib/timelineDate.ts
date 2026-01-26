@@ -11,13 +11,24 @@ import { format, parseISO } from 'date-fns';
 import { TimelineEvent } from '@/utils/healthData';
 
 /**
+ * Utility to check if a string is a valid date that won't result in "Invalid Date"
+ */
+function isValidDateString(dateStr: any): boolean {
+    if (!dateStr || typeof dateStr !== 'string') return false;
+    if (dateStr.toLowerCase().includes('invalid')) return false;
+    if (dateStr.toLowerCase().includes('nan')) return false;
+    const d = new Date(dateStr);
+    return !isNaN(d.getTime());
+}
+
+/**
  * Resolve the primary display date for a timeline event
  * Uses fallback order: clinical > report > metadata nested dates > upload
  */
 export function getDisplayDate(event: any): string | null {
     // 1. Check top-level clinical date fields (if database was updated)
-    if (event.clinical_event_date) return event.clinical_event_date;
-    if (event.report_date) return event.report_date;
+    if (isValidDateString(event.clinical_event_date)) return event.clinical_event_date;
+    if (isValidDateString(event.report_date)) return event.report_date;
 
     // 2. Check nested report_json metadata (where AI extracts dates)
     const reportMetadata = event.metadata?.report_json?.metadata || event.metadata?.metadata;
@@ -26,11 +37,15 @@ export function getDisplayDate(event: any): string | null {
             reportMetadata.visitDate ||
             reportMetadata.date ||
             reportMetadata.testDate;
-        if (nestedDate) return nestedDate;
+        if (isValidDateString(nestedDate)) return nestedDate;
     }
 
     // 3. Last resorts
-    return event.date || event.upload_date || event.event_time || null;
+    if (isValidDateString(event.date)) return event.date;
+    if (isValidDateString(event.upload_date)) return event.upload_date;
+    if (isValidDateString(event.event_time)) return event.event_time;
+
+    return null;
 }
 
 /**

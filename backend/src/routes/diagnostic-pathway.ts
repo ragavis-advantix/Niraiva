@@ -210,8 +210,8 @@ router.get('/:patientId', async (req: Request, res: Response) => {
 
         // --- FALLBACK (Raw Graph Logic) ---
 
-        // 1. Fetch all clinical events for patient
-        const { data: events, error: eventsError } = await supabase
+        // 1. Fetch all clinical events for patient (Try clinical_events first)
+        let { data: events, error: eventsError } = await supabase
             .from('clinical_events')
             .select('id, event_type, event_name, event_date, confidence, metadata, source_report_id')
             .eq('patient_id', patientId)
@@ -219,9 +219,106 @@ router.get('/:patientId', async (req: Request, res: Response) => {
 
         if (eventsError) throw eventsError;
 
+        // FALLBACK: If no clinical events, build from health_reports (real uploaded data)
         if (!events || events.length === 0) {
-            console.log(`ℹ️ [DiagnosticPathway] No events found for patient`);
-            return res.json({ nodes: [], edges: [], diagnoses: [] });
+            console.log(`ℹ️ [DiagnosticPathway] No clinical_events found for patient, fetching from health_reports...`);
+
+            const { data: reports, error: reportsError } = await supabase
+                .from('health_reports')
+                .select('id, report_json, uploaded_at, user_id')
+                .eq('user_id', patientId)  // Use user_id for health_reports table
+                .order('uploaded_at', { ascending: true });
+
+            if (reportsError) throw reportsError;
+
+            if (!reports || reports.length === 0) {
+                console.log(`ℹ️ [DiagnosticPathway] No reports found for patient`);
+                return res.json({ nodes: [], edges: [], diagnoses: [] });
+            }
+
+            // Convert health_reports to event-like structure
+            events = [];
+            const conditionMap = new Map<string, any>();
+            let eventCounter = 0;
+
+            reports.forEach((report) => {
+                if (!report.report_json || !report.report_json.data) return;
+
+                const reportData = report.report_json.data;
+                const reportId = `${report.id}`;
+
+                // Extract conditions as diagnosis events
+                if (Array.isArray(reportData.conditions)) {
+                    reportData.conditions.forEach((cond: any, idx: number) => {
+                        const condKey = cond.name || cond.diagnosis;
+                        if (condKey && !conditionMap.has(condKey)) {
+                            const eventId = `event-${eventCounter++}`;
+                            conditionMap.set(condKey, eventId);
+                            events.push({
+                                id: eventId,
+                                event_type: 'diagnosis',
+                                event_name: condKey,
+                                event_date: report.uploaded_at,
+                                confidence: cond.confidence || 0.9,
+                                metadata: { severity: cond.severity || 'moderate' },
+                                source_report_id: reportId
+                            });
+                        }
+                    });
+                }
+
+                // Extract parameters as test events
+                if (Array.isArray(reportData.parameters)) {
+                    reportData.parameters.forEach((param: any) => {
+                        const paramName = param.name || param.test;
+                        if (paramName) {
+                            const eventId = `event-${eventCounter++}`;
+                            events.push({
+                                id: eventId,
+                                event_type: 'test',
+                                event_name: paramName,
+                                event_date: report.uploaded_at,
+                                confidence: 0.95,
+                                metadata: {
+                                    value: param.value,
+                                    unit: param.unit,
+                                    status: param.status || 'normal'
+                                },
+                                source_report_id: reportId
+                            });
+                        }
+                    });
+                }
+
+                // Extract medications as medication events
+                if (Array.isArray(reportData.medications)) {
+                    reportData.medications.forEach((med: any) => {
+                        if (med.name) {
+                            const eventId = `event-${eventCounter++}`;
+                            events.push({
+                                id: eventId,
+                                event_type: 'medication',
+                                event_name: med.name,
+                                event_date: report.uploaded_at,
+                                confidence: 0.95,
+                                metadata: {
+                                    dose: med.dose,
+                                    frequency: med.frequency,
+                                    status: med.status || 'active'
+                                },
+                                source_report_id: reportId
+                            });
+                        }
+                    });
+                }
+            });
+
+            if (events.length === 0) {
+                console.log(`ℹ️ [DiagnosticPathway] No extractable events from reports for patient`);
+                return res.json({ nodes: [], edges: [], diagnoses: [] });
+            }
+
+            console.log(`✅ [DiagnosticPathway] Extracted ${events.length} events from ${reports.length} health reports`);
         }
 
         let filteredEventIds = events.map((e: any) => e.id);
@@ -235,13 +332,15 @@ router.get('/:patientId', async (req: Request, res: Response) => {
             // Just return full graph for now if template missing
         }
 
-        // 3. Fetch all edges for patient
+        // 3. Fetch all edges for patient (or skip if not available)
         const { data: edges, error: edgesError } = await supabase
             .from('clinical_event_edges')
             .select('id, from_event_id, to_event_id, relation_type, confidence')
             .eq('patient_id', patientId);
 
-        if (edgesError) throw edgesError;
+        if (edgesError) {
+            console.warn(`⚠️ [DiagnosticPathway] Could not fetch edges, continuing without:`, edgesError.message);
+        }
 
         // 4. Transform events to React Flow nodes
         const nodes = events.map((event: any) => ({
@@ -259,7 +358,7 @@ router.get('/:patientId', async (req: Request, res: Response) => {
             type: 'default'
         }));
 
-        // 5. Transform edges to React Flow edges
+        // 5. Transform edges to React Flow edges (if available)
         const reactFlowEdges = (edges || [])
             .map((edge: any) => ({
                 id: edge.id,
